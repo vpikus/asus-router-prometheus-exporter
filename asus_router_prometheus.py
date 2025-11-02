@@ -35,17 +35,25 @@ cpu_temp_gauge = Gauge(
     registry=registry
 )
 
-# CPU metrics
-cpu_usage_gauge = Gauge(
+# CPU metrics (cumulative counters since boot)
+cpu_usage_counter = Counter(
     "asus_router_cpu_usage",
-    "CPU usage",
+    "Busy time (user+system+irq+...) in jiffies/ticks since boot",
     labelnames=["product_id", "cpu_id"],
     registry=registry
 )
 
-cpu_total_gauge = Gauge(
+cpu_total_counter = Counter(
     "asus_router_cpu_total",
-    "CPU total ticks",
+    "Total time units (jiffies/ticks) elapsed since boot",
+    labelnames=["product_id", "cpu_id"],
+    registry=registry
+)
+
+# CPU usage percentage (computed from deltas between samples)
+cpu_usage_percent_gauge = Gauge(
+    "asus_router_cpu_usage_percent",
+    "CPU usage percentage (Δusage / Δtotal * 100)",
     labelnames=["product_id", "cpu_id"],
     registry=registry
 )
@@ -168,6 +176,9 @@ class RouterMetricsCollector:
     def __init__(self, client: asus_router_client.RouterClient):
         self.client = client
         self.product_id = None
+        # Track previous CPU samples for percentage calculation
+        # Format: {cpu_id: {"usage": value, "total": value}}
+        self.previous_cpu_samples = {}
 
     def collect_all_metrics(self):
         """Collect all available metrics from the router."""
@@ -205,8 +216,32 @@ class RouterMetricsCollector:
         try:
             cpu_infos = self.client.cpu_usage()
             for i, cpu_info in enumerate(cpu_infos):
-                cpu_usage_gauge.labels(product_id=self.product_id, cpu_id=str(i)).set(cpu_info.usage)
-                cpu_total_gauge.labels(product_id=self.product_id, cpu_id=str(i)).set(cpu_info.total)
+                cpu_id = str(i)
+
+                # Compute CPU usage percentage from deltas between samples
+                if cpu_id in self.previous_cpu_samples:
+                    prev_sample = self.previous_cpu_samples[cpu_id]
+                    delta_usage = cpu_info.usage - prev_sample["usage"]
+                    delta_total = cpu_info.total - prev_sample["total"]
+
+                    cpu_usage_counter.labels(product_id=self.product_id, cpu_id=cpu_id).inc(delta_usage)
+                    cpu_total_counter.labels(product_id=self.product_id, cpu_id=cpu_id).inc(delta_total)
+
+                    if delta_total > 0:
+                        usage_percent = (delta_usage / delta_total) * 100
+                        # Clamp percentage to [0, 100] range
+                        usage_percent = max(0, min(100, usage_percent))
+                        cpu_usage_percent_gauge.labels(
+                            product_id=self.product_id, cpu_id=cpu_id
+                        ).set(usage_percent)
+                        logger.debug(f"CPU {cpu_id} usage: {usage_percent:.1f}%")
+
+                # Store current sample for next iteration
+                self.previous_cpu_samples[cpu_id] = {
+                    "usage": cpu_info.usage,
+                    "total": cpu_info.total
+                }
+
             logger.debug(f"CPU metrics collected: {len(cpu_infos)} CPUs")
         except Exception as e:
             logger.warning(f"Failed to collect CPU metrics: {e}")
