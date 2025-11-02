@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  asus-router-exporter:
+    build: .
+    container_name: asus-router-exporter
+    ports:
+      - "8000:8000"
+    environment:
+      "ASUS_ROUTER_HOST": '192.168.1.1'
+      "ASUS_ROUTER_AUTH": 'username:password'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: bridge

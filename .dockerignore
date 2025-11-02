@@ -1,0 +1,13 @@
+.git
+.gitignore
+.idea
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+.env
+.venv
+venv
+.DS_Store
+README.md
+LICENSE
