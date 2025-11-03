@@ -433,6 +433,7 @@ class RouterMetricsCollector:
         except Exception as e:
             logger.warning(f"Failed to collect router info: {e}")
             scrape_errors_total.inc()
+            raise
 
 
 def create_app(router_host: str, router_auth: str, metrics_port: int = 8000):
