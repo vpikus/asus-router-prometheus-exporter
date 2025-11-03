@@ -98,14 +98,14 @@ uptime_seconds = Gauge(
 
 # Network throughput metrics - Bridge
 bridge_tx_bytes = Counter(
-    "asus_router_bridge_transmit_bytes_total",
+    "asus_router_netdev_bridge_transmit_bytes_total",
     "Total bytes transmitted on bridge interface",
     labelnames=["product_id"],
     registry=registry
 )
 
 bridge_rx_bytes = Counter(
-    "asus_router_bridge_receive_bytes_total",
+    "asus_router_netdev_bridge_receive_bytes_total",
     "Total bytes received on bridge interface",
     labelnames=["product_id"],
     registry=registry
@@ -113,14 +113,14 @@ bridge_rx_bytes = Counter(
 
 # Network throughput metrics - Wired
 wired_tx_bytes = Counter(
-    "asus_router_wired_transmit_bytes_total",
+    "asus_router_netdev_wired_transmit_bytes_total",
     "Total bytes transmitted on wired interface",
     labelnames=["product_id"],
     registry=registry
 )
 
 wired_rx_bytes = Counter(
-    "asus_router_wired_receive_bytes_total",
+    "asus_router_netdev_wired_receive_bytes_total",
     "Total bytes received on wired interface",
     labelnames=["product_id"],
     registry=registry
@@ -128,14 +128,14 @@ wired_rx_bytes = Counter(
 
 # Network throughput metrics - Internet
 internet_tx_bytes = Counter(
-    "asus_router_internet_transmit_bytes_total",
+    "asus_router_netdev_internet_transmit_bytes_total",
     "Total bytes transmitted on internet interface",
     labelnames=["product_id", "interface_id"],
     registry=registry
 )
 
 internet_rx_bytes = Counter(
-    "asus_router_internet_receive_bytes_total",
+    "asus_router_netdev_internet_receive_bytes_total",
     "Total bytes received on internet interface",
     labelnames=["product_id", "interface_id"],
     registry=registry
@@ -143,14 +143,14 @@ internet_rx_bytes = Counter(
 
 # Network throughput metrics - Wireless
 wireless_tx_bytes = Counter(
-    "asus_router_wireless_transmit_bytes_total",
+    "asus_router_netdev_wireless_transmit_bytes_total",
     "Total bytes transmitted on wireless interface",
     labelnames=["product_id", "interface_id"],
     registry=registry
 )
 
 wireless_rx_bytes = Counter(
-    "asus_router_wireless_receive_bytes_total",
+    "asus_router_netdev_wireless_receive_bytes_total",
     "Total bytes received on wireless interface",
     labelnames=["product_id", "interface_id"],
     registry=registry
@@ -181,8 +181,7 @@ scrape_errors_total = Counter(
 class RouterMetricsCollector:
     """Collects metrics from ASUS router and updates Prometheus metrics."""
 
-    # Constant for counter reset detection (32-bit max value)
-    MAX_UINT32 = 0xFFFFFFFF
+    CANDIDATE_WRAP_BITS = (64, 48, 32)
 
     def __init__(self, client: asus_router_client.RouterClient):
         self.client = client
@@ -202,23 +201,28 @@ class RouterMetricsCollector:
     @staticmethod
     def _calculate_delta(current: int, previous: int) -> int:
         """
-        Calculate delta between current and previous counter value.
-
-        Handles 32-bit counter resets: if current < previous, assumes the counter
-        wrapped around and calculates: current + (0xFFFFFFFF - previous)
-
-        Args:
-            current: Current counter value
-            previous: Previous counter value
-
-        Returns:
-            Delta value accounting for potential counter reset
+        Robust delta between two cumulative counters.
+        - Handles 64/48/32-bit wrap-around.
+        - Falls back to 'reset' semantics if we can't infer wrap.
+        - Never returns negative.
         """
         if current >= previous:
             return current - previous
-        else:
-            # Counter reset detected (wrapped around)
-            return current + (RouterMetricsCollector.MAX_UINT32 - previous)
+
+        # Try plausible wrap moduli (64 -> 48 -> 32)
+        for bits in RouterMetricsCollector.CANDIDATE_WRAP_BITS:
+            modulus = 1 << bits  # 2**bits
+            if previous < modulus:  # plausible previous value for this width
+                delta = current + (modulus - previous)
+                if delta >= 0:
+                    return delta
+
+        # If we get here, treat as a reset (e.g., reboot or interface reset)
+        # Choose either:
+        #   return current        # start counting from current value
+        # or:
+        #   return 0              # emit no delta on reset
+        return current
 
     @staticmethod
     def _create_network_samples(netdev_info: asus_router_client.NetdevInfo) -> dict:
@@ -352,11 +356,12 @@ class RouterMetricsCollector:
         """Collect memory usage metrics."""
         try:
             mem_info = self.client.memory_usage()
-            memory_total_bytes.labels(product_id=self.product_id).set(mem_info.total)
-            memory_used_bytes.labels(product_id=self.product_id).set(mem_info.used)
-            memory_free_bytes.labels(product_id=self.product_id).set(mem_info.free)
+            # ASUS API returns memory values in kilobytes, convert to bytes
+            memory_total_bytes.labels(product_id=self.product_id).set(mem_info.total_kb * 1024)
+            memory_used_bytes.labels(product_id=self.product_id).set(mem_info.used_kb * 1024)
+            memory_free_bytes.labels(product_id=self.product_id).set(mem_info.free_kb * 1024)
             logger.debug(
-                f"Memory collected: total={mem_info.total}, used={mem_info.used}, free={mem_info.free}"
+                f"Memory collected: total={mem_info.total_kb}KB, used={mem_info.used_kb}KB, free={mem_info.free_kb}KB"
             )
         except Exception as e:
             logger.warning(f"Failed to collect memory metrics: {e}")

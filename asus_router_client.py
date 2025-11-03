@@ -27,9 +27,13 @@ class CpuInfo:
 
 @dataclass
 class MemoryInfo:
-    total: int
-    used: int
-    free: int
+    """Memory statistics from router (all values in kilobytes)."""
+    total_kb: int
+    """Total memory in kilobytes."""
+    used_kb: int
+    """Used memory in kilobytes."""
+    free_kb: int
+    """Free memory in kilobytes."""
 
 @dataclass
 class UptimeInfo:
@@ -106,9 +110,9 @@ class RouterClient:
         response = self.__execute_hook("memory_usage()")
         data = json.loads("{" + response[17:])
         return MemoryInfo(
-            total=int(data["mem_total"]),
-            used=int(data["mem_used"]),
-            free=int(data["mem_free"])
+            total_kb=int(data["mem_total"]),
+            used_kb=int(data["mem_used"]),
+            free_kb=int(data["mem_free"])
         )
 
     def productid(self) -> str:
