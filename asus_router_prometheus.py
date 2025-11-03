@@ -202,27 +202,12 @@ class RouterMetricsCollector:
     def _calculate_delta(current: int, previous: int) -> int:
         """
         Robust delta between two cumulative counters.
-        - Handles 64/48/32-bit wrap-around.
-        - Falls back to 'reset' semantics if we can't infer wrap.
         - Never returns negative.
         """
         if current >= previous:
             return current - previous
 
-        # Try plausible wrap moduli (64 -> 48 -> 32)
-        for bits in RouterMetricsCollector.CANDIDATE_WRAP_BITS:
-            modulus = 1 << bits  # 2**bits
-            if previous < modulus:  # plausible previous value for this width
-                delta = current + (modulus - previous)
-                if delta >= 0:
-                    return delta
-
-        # If we get here, treat as a reset (e.g., reboot or interface reset)
-        # Choose either:
-        #   return current        # start counting from current value
-        # or:
-        #   return 0              # emit no delta on reset
-        return current
+        return 0
 
     @staticmethod
     def _create_network_samples(netdev_info: asus_router_client.NetdevInfo) -> dict:
