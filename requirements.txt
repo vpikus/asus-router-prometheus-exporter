@@ -1,3 +1,2 @@
 requests
 prometheus-client
-js2py

@@ -12,10 +12,18 @@ import argparse
 import logging
 import os
 import time
+from dataclasses import dataclass
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, start_http_server
 
 import asus_router_client
+
+
+@dataclass
+class ThroughputSample:
+    """Sample of throughput metrics at a point in time."""
+    tx: int
+    rx: int
 
 # Configure logging
 logging.basicConfig(
@@ -89,14 +97,14 @@ uptime_seconds = Gauge(
 )
 
 # Network throughput metrics - Bridge
-bridge_tx_bytes = Gauge(
+bridge_tx_bytes = Counter(
     "asus_router_bridge_transmit_bytes_total",
     "Total bytes transmitted on bridge interface",
     labelnames=["product_id"],
     registry=registry
 )
 
-bridge_rx_bytes = Gauge(
+bridge_rx_bytes = Counter(
     "asus_router_bridge_receive_bytes_total",
     "Total bytes received on bridge interface",
     labelnames=["product_id"],
@@ -104,14 +112,14 @@ bridge_rx_bytes = Gauge(
 )
 
 # Network throughput metrics - Wired
-wired_tx_bytes = Gauge(
+wired_tx_bytes = Counter(
     "asus_router_wired_transmit_bytes_total",
     "Total bytes transmitted on wired interface",
     labelnames=["product_id"],
     registry=registry
 )
 
-wired_rx_bytes = Gauge(
+wired_rx_bytes = Counter(
     "asus_router_wired_receive_bytes_total",
     "Total bytes received on wired interface",
     labelnames=["product_id"],
@@ -119,14 +127,14 @@ wired_rx_bytes = Gauge(
 )
 
 # Network throughput metrics - Internet
-internet_tx_bytes = Gauge(
+internet_tx_bytes = Counter(
     "asus_router_internet_transmit_bytes_total",
     "Total bytes transmitted on internet interface",
     labelnames=["product_id", "interface_id"],
     registry=registry
 )
 
-internet_rx_bytes = Gauge(
+internet_rx_bytes = Counter(
     "asus_router_internet_receive_bytes_total",
     "Total bytes received on internet interface",
     labelnames=["product_id", "interface_id"],
@@ -134,14 +142,14 @@ internet_rx_bytes = Gauge(
 )
 
 # Network throughput metrics - Wireless
-wireless_tx_bytes = Gauge(
+wireless_tx_bytes = Counter(
     "asus_router_wireless_transmit_bytes_total",
     "Total bytes transmitted on wireless interface",
     labelnames=["product_id", "interface_id"],
     registry=registry
 )
 
-wireless_rx_bytes = Gauge(
+wireless_rx_bytes = Counter(
     "asus_router_wireless_receive_bytes_total",
     "Total bytes received on wireless interface",
     labelnames=["product_id", "interface_id"],
@@ -173,12 +181,105 @@ scrape_errors_total = Counter(
 class RouterMetricsCollector:
     """Collects metrics from ASUS router and updates Prometheus metrics."""
 
+    # Constant for counter reset detection (32-bit max value)
+    MAX_UINT32 = 0xFFFFFFFF
+
     def __init__(self, client: asus_router_client.RouterClient):
         self.client = client
         self.product_id = None
         # Track previous CPU samples for percentage calculation
         # Format: {cpu_id: {"usage": value, "total": value}}
         self.previous_cpu_samples = {}
+        # Track previous network samples for delta calculation
+        # Format: {
+        #     "bridge": ThroughputSample,
+        #     "wired": ThroughputSample,
+        #     "internet": {interface_id: ThroughputSample},
+        #     "wireless": {interface_id: ThroughputSample}
+        # }
+        self.previous_network_samples = {}
+
+    @staticmethod
+    def _calculate_delta(current: int, previous: int) -> int:
+        """
+        Calculate delta between current and previous counter value.
+
+        Handles 32-bit counter resets: if current < previous, assumes the counter
+        wrapped around and calculates: current + (0xFFFFFFFF - previous)
+
+        Args:
+            current: Current counter value
+            previous: Previous counter value
+
+        Returns:
+            Delta value accounting for potential counter reset
+        """
+        if current >= previous:
+            return current - previous
+        else:
+            # Counter reset detected (wrapped around)
+            return current + (RouterMetricsCollector.MAX_UINT32 - previous)
+
+    @staticmethod
+    def _create_network_samples(netdev_info: asus_router_client.NetdevInfo) -> dict:
+        """
+        Create network samples from current netdev info.
+
+        Args:
+            netdev_info: Current network device information
+
+        Returns:
+            Dictionary with network samples for all interfaces
+        """
+        return {
+            "bridge": ThroughputSample(
+                tx=netdev_info.bridge.total_upload_bytes,
+                rx=netdev_info.bridge.total_download_bytes
+            ),
+            "wired": ThroughputSample(
+                tx=netdev_info.wired.total_upload_bytes,
+                rx=netdev_info.wired.total_download_bytes
+            ),
+            "internet": {
+                iid: ThroughputSample(
+                    tx=throughput.total_upload_bytes,
+                    rx=throughput.total_download_bytes
+                )
+                for iid, throughput in netdev_info.internet.items()
+            },
+            "wireless": {
+                wid: ThroughputSample(
+                    tx=throughput.total_upload_bytes,
+                    rx=throughput.total_download_bytes
+                )
+                for wid, throughput in netdev_info.wireless.items()
+            }
+        }
+
+    def _update_interface_metrics(self, interface_type: str, interfaces: dict,
+                                 prev_interfaces: dict, tx_counter, rx_counter) -> None:
+        """
+        Update metrics for a specific interface type (internet or wireless).
+
+        Args:
+            interface_type: Type of interface ("internet" or "wireless")
+            interfaces: Current interface data from netdev_info
+            prev_interfaces: Previous interface samples
+            tx_counter: Prometheus counter for transmit bytes
+            rx_counter: Prometheus counter for receive bytes
+        """
+        for interface_id, throughput in interfaces.items():
+            if interface_id in prev_interfaces:
+                prev_iface = prev_interfaces[interface_id]
+                delta_tx = self._calculate_delta(throughput.total_upload_bytes, prev_iface.tx)
+                delta_rx = self._calculate_delta(throughput.total_download_bytes, prev_iface.rx)
+            else:
+                logger.debug(f"{interface_type.capitalize()} interface {interface_id} - first sample, storing baseline")
+                delta_tx = 0
+                delta_rx = 0
+
+            tx_counter.labels(product_id=self.product_id, interface_id=str(interface_id)).inc(delta_tx)
+            rx_counter.labels(product_id=self.product_id, interface_id=str(interface_id)).inc(delta_rx)
 
     def collect_all_metrics(self):
         """Collect all available metrics from the router."""
@@ -276,31 +377,38 @@ class RouterMetricsCollector:
         try:
             netdev_info = self.client.netdev()
 
+            # Initialize network samples tracking if not present
+            if not self.previous_network_samples:
+                self.previous_network_samples = self._create_network_samples(netdev_info)
+                logger.debug("Network samples initialized (first collection)")
+                return
+
             # Bridge metrics
-            bridge_tx_bytes.labels(product_id=self.product_id).set(netdev_info.bridge.total_upload_bytes)
-            bridge_rx_bytes.labels(product_id=self.product_id).set(netdev_info.bridge.total_download_bytes)
+            prev_bridge = self.previous_network_samples["bridge"]
+            delta_bridge_tx = self._calculate_delta(netdev_info.bridge.total_upload_bytes, prev_bridge.tx)
+            delta_bridge_rx = self._calculate_delta(netdev_info.bridge.total_download_bytes, prev_bridge.rx)
+            bridge_tx_bytes.labels(product_id=self.product_id).inc(delta_bridge_tx)
+            bridge_rx_bytes.labels(product_id=self.product_id).inc(delta_bridge_rx)
 
             # Wired metrics
-            wired_tx_bytes.labels(product_id=self.product_id).set(netdev_info.wired.total_upload_bytes)
-            wired_rx_bytes.labels(product_id=self.product_id).set(netdev_info.wired.total_download_bytes)
+            prev_wired = self.previous_network_samples["wired"]
+            delta_wired_tx = self._calculate_delta(netdev_info.wired.total_upload_bytes, prev_wired.tx)
+            delta_wired_rx = self._calculate_delta(netdev_info.wired.total_download_bytes, prev_wired.rx)
+            wired_tx_bytes.labels(product_id=self.product_id).inc(delta_wired_tx)
+            wired_rx_bytes.labels(product_id=self.product_id).inc(delta_wired_rx)
 
             # Internet metrics
-            for interface_id, throughput in netdev_info.internet.items():
-                internet_tx_bytes.labels(product_id=self.product_id, interface_id=str(interface_id)).set(
-                    throughput.total_upload_bytes
-                )
-                internet_rx_bytes.labels(product_id=self.product_id, interface_id=str(interface_id)).set(
-                    throughput.total_download_bytes
-                )
+            prev_internet = self.previous_network_samples.get("internet", {})
+            self._update_interface_metrics("internet", netdev_info.internet, prev_internet,
+                                          internet_tx_bytes, internet_rx_bytes)
 
             # Wireless metrics
-            for interface_id, throughput in netdev_info.wireless.items():
-                wireless_tx_bytes.labels(product_id=self.product_id, interface_id=str(interface_id)).set(
-                    throughput.total_upload_bytes
-                )
-                wireless_rx_bytes.labels(product_id=self.product_id, interface_id=str(interface_id)).set(
-                    throughput.total_download_bytes
-                )
+            prev_wireless = self.previous_network_samples.get("wireless", {})
+            self._update_interface_metrics("wireless", netdev_info.wireless, prev_wireless,
+                                          wireless_tx_bytes, wireless_rx_bytes)
+
+            # Update previous samples for next iteration
+            self.previous_network_samples = self._create_network_samples(netdev_info)
 
             logger.debug(
                 f"Network metrics collected: "
@@ -358,6 +466,7 @@ def create_app(router_host: str, router_auth: str, metrics_port: int = 8000):
                     logger.info("Metrics collected successfully")
                 except Exception as e:
                     logger.error(f"Error during metrics collection: {e}")
+                    raise
 
                 time.sleep(2)
         except KeyboardInterrupt:
