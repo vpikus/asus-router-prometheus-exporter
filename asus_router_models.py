@@ -140,3 +140,9 @@ class SwMode(Enum):
     """
     Router
     """
+
+class UsbDeviceType(Enum):
+    STORAGE = "storage"
+    MODEM = "modem"
+    PRINTER = "printer"
+

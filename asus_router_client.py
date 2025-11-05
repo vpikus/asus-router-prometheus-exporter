@@ -29,6 +29,7 @@ class RouterClient:
         try:
             data = response.json()
             if "error_status" in data:
+                # TODO: handle 2 (probable token expired), 10 (captcha is required) and other statuses
                 raise AuthenticationException()
         except json.decoder.JSONDecodeError:
             pass
@@ -114,6 +115,14 @@ class RouterClient:
             band: counts.get(band.value, 0)
             for band in WifiBand
         }
+
+    def get_plugged_usb_devices(self) -> list[UsbDeviceType]:
+        response = self.__get_hook("show_usb_path")
+        all_usb_statuses = json.loads(response)["show_usb_path"]
+        usb_devices = []
+        for usb_status in all_usb_statuses:
+            usb_devices.append(UsbDeviceType(usb_status))
+        return usb_devices
 
     def get_info(self) -> RouterInfo:
         nvrams = self.__get_nvram("productid", "lan_hwaddr", "lan_hostname", "odmpid", "hardware_version",
