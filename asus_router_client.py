@@ -3,12 +3,14 @@ from __future__ import annotations
 import base64
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 
 import requests
 
-import asus_router_utils
+from asus_router_utils import *
 
 ASUS_CLIENT_DEFAULT_HEADERS = {
     "User-Agent": "asusrouter-Android-DUTUtil-1.0.0.245"
@@ -16,14 +18,17 @@ ASUS_CLIENT_DEFAULT_HEADERS = {
 
 DEFAULT_TIMEOUT = 10
 
+
 @dataclass
 class TemperatureInfo:
     cpu: float
+
 
 @dataclass
 class CpuInfo:
     total: int
     usage: int
+
 
 @dataclass
 class MemoryInfo:
@@ -35,15 +40,18 @@ class MemoryInfo:
     free_kb: int
     """Free memory in kilobytes."""
 
+
 @dataclass
 class UptimeInfo:
-    uptime: datetime
-    uptime_sec: int
+    systime: datetime
+    boottime: int
+
 
 @dataclass
 class ThroughputInfo:
     total_upload_bytes: int
     total_download_bytes: int
+
 
 @dataclass
 class NetdevInfo:
@@ -52,23 +60,150 @@ class NetdevInfo:
     wired: ThroughputInfo
     wireless: dict[int, ThroughputInfo]
 
+class WifiBand(Enum):
+    _2G = 2
+    _5G = 1
+    _6G = 4
+    _60G = 6
+
+@dataclass
+class WifiInfo:
+    bands_count: dict[WifiBand, int]
+
+    def is_supported(self, b: WifiBand) -> bool:
+        return bool(self.bands_count.get(b, 0))
+
+class DualWanMode(Enum):
+    NONE = 'none'
+    WAN = 'wan'
+    LAN = 'lan'
+    USB = 'usb'
+    DSL = 'dsl'
+
+@dataclass
+class DualWanInfo:
+    modes: dict[int, DualWanMode]
+    wan0_enable: bool
+    wan1_enable: bool
+    active_wan_unit: int
+    enabled: bool
+    pass
+
+
+@dataclass
+class RouterInfo:
+    product_id: str
+    lan_hwaddr: str
+    lan_hostname: str
+    odmpid: str
+    hardware_version: str
+    bl_version: str
+    svc_ready: bool
+    qos_enable: bool
+    qos_type: int
+    bwdpi_app_rulelist: str
+    firmver: str
+    extendno: str
+    territory_code: str
+    re_mode: int
+    sw_mode: SwMode
+    caps: RouterFeatureCapabilities
+    uptime: UptimeInfo
+    wifi_info: WifiInfo
+
+
+class RouterFeatureCapabilities:
+
+    def __init__(self, cap):
+        self.caps: dict[str, int] = {
+            str(k): int(v) for k, v in cap.items()
+        }
+
+    def __getitem__(self, key: str) -> int:
+        return self.caps.get(key, 0)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.caps
+
+    def is_supported(self, f) -> bool:
+        return bool(self.caps.get(f, 0))
+
+
+class SwMode(Enum):
+    RE = "re"
+    """
+    Repeater
+    """
+    AP = "ap"
+    """
+    Access Point
+    """
+    MB = "MB"
+    """
+    MediaBridge
+    """
+    EW2 = "ew2"
+    """
+    Express Way 2G
+    """
+    EW5 = "ew5"
+    """
+    Express Way 5G
+    """
+    HS = "hs"
+    """
+    Hotspot
+    """
+    RT = "rt"
+    """
+    Router
+    """
+
+
+class AuthenticationException(Exception):
+    pass
+
 
 @dataclass
 class RouterClient:
     host: str
     session: requests.Session
 
-    def __execute_hook(self, *hooks: str) -> str:
+    @staticmethod
+    def __handle_response(response: requests.Response) -> str:
+        response.raise_for_status()
+        try:
+            data = response.json()
+            if "error_status" in data:
+                raise AuthenticationException()
+        except json.decoder.JSONDecodeError:
+            pass
+        return response.text
+
+    def __get_hook(self, name: str, args: str = "") -> str:
         response = self.session.get(f"{self.host}/appGet.cgi",
                                     params={
-                                        "hook": ";".join(hooks),
+                                        "hook": f"{name}({args})"
                                     },
                                     headers=ASUS_CLIENT_DEFAULT_HEADERS,
                                     timeout=DEFAULT_TIMEOUT)
-        response.raise_for_status()
-        return response.text
+        return self.__handle_response(response)
 
-    def core_temp(self) -> TemperatureInfo:
+    def __get_nvram(self, *nvrams: str):
+        def __nvramget(*vars_: str) -> str:
+            return ";".join(f"nvram_get({v})" for v in vars_)
+
+        response = self.session.get(f"{self.host}/appGet.cgi",
+                                    params={
+                                        "hook": f"{__nvramget(*nvrams)})"
+                                    },
+                                    headers=ASUS_CLIENT_DEFAULT_HEADERS,
+                                    timeout=DEFAULT_TIMEOUT)
+
+        text = self.__handle_response(response)
+        return json.loads(text)
+
+    def get_core_temp(self) -> TemperatureInfo:
         response = self.session.get(f"{self.host}/ajax_coretmp.asp",
                                     headers=ASUS_CLIENT_DEFAULT_HEADERS,
                                     timeout=DEFAULT_TIMEOUT)
@@ -81,20 +216,20 @@ class RouterClient:
             cpu=float(parsed["curr_cpuTemp"])
         )
 
-    def uptime(self) -> UptimeInfo:
-        response = self.__execute_hook("uptime()")
+    def get_uptime(self) -> UptimeInfo:
+        response = self.__get_hook("uptime")
         data = json.loads(response)
         uptime_raw = data["uptime"].split("(")
-        uptime = datetime.strptime(uptime_raw[0].strip(), "%a, %d %b %Y %H:%M:%S %z")
-        uptime_sec = int(uptime_raw[1].split(" ")[0])
-        return UptimeInfo(uptime=uptime, uptime_sec=uptime_sec)
+        systime = datetime.strptime(uptime_raw[0].strip(), "%a, %d %b %Y %H:%M:%S %z")
+        boottime = int(uptime_raw[1].split(" ")[0])
+        return UptimeInfo(systime=systime, boottime=boottime)
 
-    def cpu_usage(self) -> list[CpuInfo]:
-        response = self.__execute_hook("cpu_usage()")
+    def get_cpu_usage(self) -> list[CpuInfo]:
+        response = self.__get_hook("cpu_usage")
         data = json.loads("{" + response[14:])
         cpu_infos: list[CpuInfo] = []
 
-        cpu_ids = asus_router_utils.ids_for("cpu", data.keys())
+        cpu_ids = ids_for("cpu", data.keys())
 
         for cid in cpu_ids:
             prefix = f"cpu{cid}"
@@ -106,8 +241,8 @@ class RouterClient:
 
         return cpu_infos
 
-    def memory_usage(self) -> MemoryInfo:
-        response = self.__execute_hook("memory_usage()")
+    def get_memory_usage(self) -> MemoryInfo:
+        response = self.__get_hook("memory_usage")
         data = json.loads("{" + response[17:])
         return MemoryInfo(
             total_kb=int(data["mem_total"]),
@@ -115,49 +250,142 @@ class RouterClient:
             free_kb=int(data["mem_free"])
         )
 
-    def productid(self) -> str:
-        response = self.__execute_hook("nvram_get(productid)")
-        data = json.loads(response)
-        return data["productid"]
+    def get_wl_nband_info(self) -> dict[WifiBand, int]:
+        response = self.__get_hook("wl_nband_info")
+        wl_nband_info = json.loads(response)["wl_nband_info"]
+        wl_nband_array = [int(v) for v in wl_nband_info]
+        counts = Counter(wl_nband_array)
 
-    def netdev(self) -> NetdevInfo:
-        response = self.__execute_hook("netdev(appobj)")
+        return {
+            band: counts.get(band.value, 0)
+            for band in WifiBand
+        }
+
+    def get_info(self) -> RouterInfo:
+        nvrams = self.__get_nvram("productid", "lan_hwaddr", "lan_hostname", "odmpid", "hardware_version",
+                                  "bl_version", "svc_ready", "qos_enable", "bwdpi_app_rulelist", "qos_type", "firmver",
+                                  "extendno", "territory_code", "re_mode")
+
+        sw_mode = self.get_sw_mode()
+        caps = self.get_supported_features()
+        uptime = self.get_uptime()
+        wl_nband_info = self.get_wl_nband_info()
+        return RouterInfo(
+            product_id=nvrams["productid"],
+            lan_hwaddr=nvrams["lan_hwaddr"],
+            lan_hostname=nvrams["lan_hostname"],
+            odmpid=nvrams["odmpid"],
+            hardware_version=nvrams["hardware_version"],
+            bl_version=nvrams["bl_version"],
+            sw_mode=sw_mode,
+            svc_ready=to_bool(nvrams.get("svc_ready", "0")),
+            qos_enable=to_bool(nvrams.get("qos_enable", "0")),
+            bwdpi_app_rulelist=nvrams["bwdpi_app_rulelist"].replace("&#60", "<"),
+            qos_type=int(nvrams["qos_type"]),
+            firmver=nvrams["firmver"],
+            extendno=nvrams["extendno"],
+            territory_code=nvrams["territory_code"],
+            re_mode=int(nvrams["re_mode"]),
+            caps=caps,
+            uptime=uptime,
+            wifi_info=WifiInfo(
+                bands_count=wl_nband_info
+            )
+        )
+
+    def get_netdev(self) -> NetdevInfo:
+        response = self.__get_hook("netdev", "appobj")
         data = json.loads(response)
         netdev = data["netdev"]
 
         bridge = ThroughputInfo(
-            total_upload_bytes=asus_router_utils.parse_hex(netdev["BRIDGE_tx"]),
-            total_download_bytes=asus_router_utils.parse_hex(netdev["BRIDGE_rx"])
+            total_upload_bytes=parse_hex(netdev["BRIDGE_tx"]),
+            total_download_bytes=parse_hex(netdev["BRIDGE_rx"])
         )
 
         wired = ThroughputInfo(
-            total_upload_bytes=asus_router_utils.parse_hex(netdev["WIRED_tx"]),
-            total_download_bytes=asus_router_utils.parse_hex(netdev["WIRED_rx"])
+            total_upload_bytes=parse_hex(netdev["WIRED_tx"]),
+            total_download_bytes=parse_hex(netdev["WIRED_rx"])
         )
 
-        internet_ids = asus_router_utils.ids_for("INTERNET", netdev.keys())
+        internet_ids = ids_for("INTERNET", netdev.keys())
         internet: dict[int, ThroughputInfo] = {
             iid: ThroughputInfo(
-                total_upload_bytes=asus_router_utils.parse_hex(netdev.get(f"INTERNET{iid}_tx")),
-                total_download_bytes=asus_router_utils.parse_hex(netdev.get(f"INTERNET{iid}_rx")),
+                total_upload_bytes=parse_hex(netdev.get(f"INTERNET{iid}_tx")),
+                total_download_bytes=parse_hex(netdev.get(f"INTERNET{iid}_rx")),
             )
             for iid in internet_ids
         }
 
-        wireless_ids = asus_router_utils.ids_for("WIRELESS", netdev.keys())
+        wireless_ids = ids_for("WIRELESS", netdev.keys())
         wireless: dict[int, ThroughputInfo] = {
             wid: ThroughputInfo(
-                total_upload_bytes=asus_router_utils.parse_hex(netdev.get(f"WIRELESS{wid}_tx")),
-                total_download_bytes=asus_router_utils.parse_hex(netdev.get(f"WIRELESS{wid}_rx")),
+                total_upload_bytes=parse_hex(netdev.get(f"WIRELESS{wid}_tx")),
+                total_download_bytes=parse_hex(netdev.get(f"WIRELESS{wid}_rx")),
             )
             for wid in wireless_ids
         }
 
         return NetdevInfo(bridge=bridge, internet=internet, wired=wired, wireless=wireless)
 
-    def wanlink(self) -> str:
-        response = self.__execute_hook("wanlink()")
-        print(response)
+    def get_supported_features(self) -> RouterFeatureCapabilities:
+        response = self.__get_hook("get_ui_support")
+        data = json.loads(response)
+        cap = RouterFeatureCapabilities(data["get_ui_support"])
+        return cap
+
+    def get_sw_mode(self) -> SwMode:
+        nvrams = self.__get_nvram("sw_mode", "wlc_psta", "wlc_express")
+        sw_mode = int(nvrams["sw_mode"])
+        wlc_psta = safe_int(nvrams.get("wlc_psta", 0))
+        wlc_express = safe_int(nvrams.get("wlc_express", 0))
+
+        mode = SwMode.RT
+        if ((sw_mode == 2 and wlc_psta == 0) or (sw_mode == 3 and wlc_psta == 2)) and wlc_express == 0:
+            # Repeater
+            mode = SwMode.RE
+        elif sw_mode == 3 and (wlc_psta == 0 or wlc_psta == ""):
+            # Access Point
+            mode = SwMode.AP
+        elif (
+                (sw_mode == 3 and wlc_psta in (1, 3) and wlc_express == 0)
+                or (sw_mode == 2 and wlc_psta == 1 and wlc_express == 0)
+        ):
+            # Media Bridge
+            mode = SwMode.MB
+        elif sw_mode == 2 and wlc_psta == 0 and wlc_express == 1:
+            # ExpressWay 2G
+            mode = SwMode.EW2
+        elif sw_mode == 2 and wlc_psta == 0 and wlc_express == 2:
+            # ExpressWay 5G
+            mode = SwMode.EW5
+        elif sw_mode == 5:
+            # Hotspot
+            mode = SwMode.HS
+
+        return mode
+
+    def get_dual_wan_info(self) -> DualWanInfo:
+        nvrams = self.__get_nvram("wans_dualwan", "wan0_enable", "wan1_enable")
+        active_wan_unit = int(json.loads(self.__get_hook("get_wan_unit"))["get_wan_unit"])
+        caps = self.get_supported_features()
+
+        wans_dualwan_raw = nvrams["wans_dualwan"].split()
+        wans_dualwan:dict[int, DualWanMode] = {
+            i: DualWanMode(part.lower()) if part.lower() in DualWanMode._value2member_map_ else DualWanMode.NONE
+            for i, part in enumerate(wans_dualwan_raw)
+        }
+
+        dualwan_enabled = caps.is_supported("dualwan") and DualWanMode.NONE not in set(wans_dualwan.values())
+        return DualWanInfo(
+            modes=wans_dualwan,
+            wan0_enable=to_bool(nvrams.get("wan0_enable", "0")),
+            wan1_enable=to_bool(nvrams.get("wan1_enable", "0")),
+            active_wan_unit=active_wan_unit,
+            enabled=dualwan_enabled
+        )
+
+
 
 class RouterClientFactory:
 

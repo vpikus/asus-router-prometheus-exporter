@@ -181,11 +181,9 @@ scrape_errors_total = Counter(
 class RouterMetricsCollector:
     """Collects metrics from ASUS router and updates Prometheus metrics."""
 
-    CANDIDATE_WRAP_BITS = (64, 48, 32)
-
     def __init__(self, client: asus_router_client.RouterClient):
         self.client = client
-        self.product_id = None
+        self.router_info:asus_router_client.RouterInfo | None = None
         # Track previous CPU samples for percentage calculation
         # Format: {cpu_id: {"usage": value, "total": value}}
         self.previous_cpu_samples = {}
@@ -267,8 +265,8 @@ class RouterMetricsCollector:
                 delta_tx = 0
                 delta_rx = 0
 
-            tx_counter.labels(product_id=self.product_id, interface_id=str(interface_id)).inc(delta_tx)
-            rx_counter.labels(product_id=self.product_id, interface_id=str(interface_id)).inc(delta_rx)
+            tx_counter.labels(product_id=self.router_info.product_id, interface_id=str(interface_id)).inc(delta_tx)
+            rx_counter.labels(product_id=self.router_info.product_id, interface_id=str(interface_id)).inc(delta_rx)
 
     def collect_all_metrics(self):
         """Collect all available metrics from the router."""
@@ -277,14 +275,13 @@ class RouterMetricsCollector:
                 # Collect product_id first as it's used in all metrics
                 self._collect_router_info()
 
-                if not self.product_id:
+                if not self.router_info.product_id:
                     logger.warning("Product ID not available, skipping metric collection")
                     return
 
                 self._collect_temperature_metrics()
                 self._collect_cpu_metrics()
                 self._collect_memory_metrics()
-                self._collect_uptime_metrics()
                 self._collect_network_metrics()
             except Exception as e:
                 logger.error(f"Error collecting metrics: {e}")
@@ -294,8 +291,8 @@ class RouterMetricsCollector:
     def _collect_temperature_metrics(self):
         """Collect temperature metrics."""
         try:
-            temp_info = self.client.core_temp()
-            cpu_temp_gauge.labels(product_id=self.product_id).set(temp_info.cpu)
+            temp_info = self.client.get_core_temp()
+            cpu_temp_gauge.labels(product_id=self.router_info.product_id).set(temp_info.cpu)
             logger.debug(f"Temperature collected: CPU={temp_info.cpu}C")
         except Exception as e:
             logger.warning(f"Failed to collect temperature metrics: {e}")
@@ -304,7 +301,7 @@ class RouterMetricsCollector:
     def _collect_cpu_metrics(self):
         """Collect CPU usage metrics."""
         try:
-            cpu_infos = self.client.cpu_usage()
+            cpu_infos = self.client.get_cpu_usage()
             for i, cpu_info in enumerate(cpu_infos):
                 cpu_id = str(i)
 
@@ -314,15 +311,15 @@ class RouterMetricsCollector:
                     delta_usage = cpu_info.usage - prev_sample["usage"]
                     delta_total = cpu_info.total - prev_sample["total"]
 
-                    cpu_usage_counter.labels(product_id=self.product_id, cpu_id=cpu_id).inc(delta_usage)
-                    cpu_total_counter.labels(product_id=self.product_id, cpu_id=cpu_id).inc(delta_total)
+                    cpu_usage_counter.labels(product_id=self.router_info.product_id, cpu_id=cpu_id).inc(delta_usage)
+                    cpu_total_counter.labels(product_id=self.router_info.product_id, cpu_id=cpu_id).inc(delta_total)
 
                     if delta_total > 0:
                         usage_percent = (delta_usage / delta_total) * 100
                         # Clamp percentage to [0, 100] range
                         usage_percent = max(0, min(100, usage_percent))
                         cpu_usage_percent_gauge.labels(
-                            product_id=self.product_id, cpu_id=cpu_id
+                            product_id=self.router_info.product_id, cpu_id=cpu_id
                         ).set(usage_percent)
                         logger.debug(f"CPU {cpu_id} usage: {usage_percent:.1f}%")
 
@@ -340,11 +337,11 @@ class RouterMetricsCollector:
     def _collect_memory_metrics(self):
         """Collect memory usage metrics."""
         try:
-            mem_info = self.client.memory_usage()
+            mem_info = self.client.get_memory_usage()
             # ASUS API returns memory values in kilobytes, convert to bytes
-            memory_total_bytes.labels(product_id=self.product_id).set(mem_info.total_kb * 1024)
-            memory_used_bytes.labels(product_id=self.product_id).set(mem_info.used_kb * 1024)
-            memory_free_bytes.labels(product_id=self.product_id).set(mem_info.free_kb * 1024)
+            memory_total_bytes.labels(product_id=self.router_info.product_id).set(mem_info.total_kb * 1024)
+            memory_used_bytes.labels(product_id=self.router_info.product_id).set(mem_info.used_kb * 1024)
+            memory_free_bytes.labels(product_id=self.router_info.product_id).set(mem_info.free_kb * 1024)
             logger.debug(
                 f"Memory collected: total={mem_info.total_kb}KB, used={mem_info.used_kb}KB, free={mem_info.free_kb}KB"
             )
@@ -352,20 +349,10 @@ class RouterMetricsCollector:
             logger.warning(f"Failed to collect memory metrics: {e}")
             scrape_errors_total.inc()
 
-    def _collect_uptime_metrics(self):
-        """Collect uptime metrics."""
-        try:
-            uptime_info = self.client.uptime()
-            uptime_seconds.labels(product_id=self.product_id).set(uptime_info.uptime_sec)
-            logger.debug(f"Uptime collected: {uptime_info.uptime_sec}s")
-        except Exception as e:
-            logger.warning(f"Failed to collect uptime metrics: {e}")
-            scrape_errors_total.inc()
-
     def _collect_network_metrics(self):
         """Collect network throughput metrics."""
         try:
-            netdev_info = self.client.netdev()
+            netdev_info = self.client.get_netdev()
 
             # Initialize network samples tracking if not present
             if not self.previous_network_samples:
@@ -377,15 +364,15 @@ class RouterMetricsCollector:
             prev_bridge = self.previous_network_samples["bridge"]
             delta_bridge_tx = self._calculate_delta(netdev_info.bridge.total_upload_bytes, prev_bridge.tx)
             delta_bridge_rx = self._calculate_delta(netdev_info.bridge.total_download_bytes, prev_bridge.rx)
-            bridge_tx_bytes.labels(product_id=self.product_id).inc(delta_bridge_tx)
-            bridge_rx_bytes.labels(product_id=self.product_id).inc(delta_bridge_rx)
+            bridge_tx_bytes.labels(product_id=self.router_info.product_id).inc(delta_bridge_tx)
+            bridge_rx_bytes.labels(product_id=self.router_info.product_id).inc(delta_bridge_rx)
 
             # Wired metrics
             prev_wired = self.previous_network_samples["wired"]
             delta_wired_tx = self._calculate_delta(netdev_info.wired.total_upload_bytes, prev_wired.tx)
             delta_wired_rx = self._calculate_delta(netdev_info.wired.total_download_bytes, prev_wired.rx)
-            wired_tx_bytes.labels(product_id=self.product_id).inc(delta_wired_tx)
-            wired_rx_bytes.labels(product_id=self.product_id).inc(delta_wired_rx)
+            wired_tx_bytes.labels(product_id=self.router_info.product_id).inc(delta_wired_tx)
+            wired_rx_bytes.labels(product_id=self.router_info.product_id).inc(delta_wired_rx)
 
             # Internet metrics
             prev_internet = self.previous_network_samples.get("internet", {})
@@ -412,9 +399,11 @@ class RouterMetricsCollector:
     def _collect_router_info(self):
         """Collect router information."""
         try:
-            self.product_id = self.client.productid()
-            router_info.labels(product_id=self.product_id).set(1)
-            logger.debug(f"Router info collected: product_id={self.product_id}")
+            self.router_info = self.client.get_info()
+            router_info.labels(product_id=self.router_info.product_id).set(1)
+
+            uptime_seconds.labels(product_id=self.router_info.product_id).set(self.router_info.uptime.boottime)
+            logger.debug(f"Router info collected: product_id={self.router_info.product_id}")
         except Exception as e:
             logger.warning(f"Failed to collect router info: {e}")
             scrape_errors_total.inc()

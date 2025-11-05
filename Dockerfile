@@ -12,9 +12,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY asus_router_client.py .
-COPY asus_router_utils.py .
-COPY asus_router_prometheus.py .
+COPY asus_router_* .
 
 # Create non-root user
 RUN addgroup -g 1000 exporter && \
