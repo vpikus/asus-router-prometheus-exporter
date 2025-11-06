@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 
+from typing import Optional
 
 @dataclass
 class TemperatureInfo:
@@ -55,7 +56,7 @@ class WifiInfo:
     def is_supported(self, b: WifiBand) -> bool:
         return bool(self.bands_count.get(b, 0))
 
-class DualWanMode(Enum):
+class DualWanOrigin(Enum):
     NONE = 'none'
     WAN = 'wan'
     LAN = 'lan'
@@ -64,11 +65,12 @@ class DualWanMode(Enum):
 
 @dataclass
 class DualWanInfo:
-    modes: dict[int, DualWanMode]
+    wan_origins: dict[int, DualWanOrigin]
     wan0_enable: bool
     wan1_enable: bool
     active_wan_unit: int
     enabled: bool
+    wans_mode: WanMode
     pass
 
 
@@ -92,6 +94,7 @@ class RouterInfo:
     caps: RouterFeatureCapabilities
     uptime: UptimeInfo
     wifi_info: WifiInfo
+    serial_no: str
 
 
 class RouterFeatureCapabilities:
@@ -146,3 +149,117 @@ class UsbDeviceType(Enum):
     MODEM = "modem"
     PRINTER = "printer"
 
+class WanProtoType(Enum):
+    DHCP = "dhcp"
+    STATIC = "static"
+    L2TP = "l2tp"
+    PPTP = "pptp"
+    Lw4o6 = "lw4o6"
+    MAP_E = "map-e"
+    V6PLUS = "v6plus"
+    PPPoA = "pppoa"
+    IPoA = "ipoa"
+    PPPoE = "pppoe"
+    IPoE = "ipoe"
+    OCNVC = "ocnvc"
+    DSLITE = "dslite"
+    V6OPT = "v6opt"
+    USB = "usb"
+
+class WanDslProtoType(Enum):
+    PPPoA = "pppoa"
+    IPoA = "ipoa"
+    PPPoE = "pppoe"
+    IPoE = "ipoe"
+
+class DslTransMode(Enum):
+    ATM = "atm"
+    PTM = "ptm"
+
+
+class WanStatus(Enum):
+    STANDBY = "standby"
+    CONNECTED = "connected"
+    DISCONNECTED = "disconnected"
+
+class WanMode(Enum):
+    FAIL_OVER = "fo"
+    FAIL_BACK = "fb"
+    LOAD_BALANCE = "lb"
+
+@dataclass
+class WanInfo:
+    status: WanStatus
+    connection_info: WanConnectionInfo
+    ipaddr: Optional[str] = None
+    proto: Optional[WanProtoType] = None
+
+@dataclass
+class NetworkWanInfo:
+    mode: SwMode
+    dual_wan_info: Optional[DualWanInfo] = None
+    primary_wan: Optional[WanInfo] = None
+    secondary_wan: Optional[WanInfo] = None
+    lan_info: Optional[LanInfo] = None
+
+class WanState(Enum):
+    IDLE = 0
+    CONNECTING = 1
+    CONNECTED = 2
+    ERROR = 4
+    DISABLED = 5
+
+class WanSubState(Enum):
+    OK = 0
+    PPP_FAIL = 1
+    BAD_CREDENTIALS = 2
+    DHCP_FAIL = 3
+    IP_CONFLICT = 4
+
+class WanAuxState(Enum):
+    CONNECTED = 0
+    DISCONNECTED = 1
+
+class LinkInternet(Enum):
+    OFFLINE = 0
+    TESTING = 1
+    ONLINE = 2
+
+
+@dataclass
+class WanConnectionInfo:
+    state: WanState
+    substate: WanSubState
+    auxstate: WanAuxState
+    link_internet: LinkInternet
+
+    @property
+    def is_connected(self) -> bool:
+        return (
+            self.link_internet == LinkInternet.ONLINE and
+            self.state == WanState.CONNECTED and
+            self.substate == WanSubState.OK and
+            self.auxstate == WanAuxState.CONNECTED
+        )
+
+@dataclass
+class DslInfo:
+    transmode: DslTransMode
+    proto: WanDslProtoType
+
+class LanState(Enum):
+    DISCONNECTED = 0
+    CONNECTED = 1
+
+class LanProtoType(Enum):
+    DHCP = "dhcp"
+    STATIC = "static"
+    PPPoE = "pppoe"
+    L2TP = "l2tp"
+    PPTP = "pptp"
+
+@dataclass
+class LanInfo:
+    state: LanState
+    ipaddr: str
+    proto: LanProtoType

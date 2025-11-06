@@ -127,7 +127,7 @@ class RouterClient:
     def get_info(self) -> RouterInfo:
         nvrams = self.__get_nvram("productid", "lan_hwaddr", "lan_hostname", "odmpid", "hardware_version",
                                   "bl_version", "svc_ready", "qos_enable", "bwdpi_app_rulelist", "qos_type", "firmver",
-                                  "extendno", "territory_code", "re_mode")
+                                  "extendno", "territory_code", "re_mode", "serial_no")
 
         sw_mode = self.get_sw_mode()
         caps = self.get_supported_features()
@@ -151,6 +151,7 @@ class RouterClient:
             re_mode=int(nvrams["re_mode"]),
             caps=caps,
             uptime=uptime,
+            serial_no=nvrams["serial_no"],
             wifi_info=WifiInfo(
                 bands_count=wl_nband_info
             )
@@ -229,25 +230,85 @@ class RouterClient:
         return mode
 
     def get_dual_wan_info(self) -> DualWanInfo:
-        nvrams = self.__get_nvram("wans_dualwan", "wan0_enable", "wan1_enable")
+        nvrams = self.__get_nvram("wans_dualwan", "wan0_enable", "wan1_enable", "wans_mode")
         active_wan_unit = int(json.loads(self.__get_hook("get_wan_unit"))["get_wan_unit"])
         caps = self.get_supported_features()
 
         wans_dualwan_raw = nvrams["wans_dualwan"].split()
-        wans_dualwan:dict[int, DualWanMode] = {
-            i: DualWanMode(part.lower()) if part.lower() in DualWanMode._value2member_map_ else DualWanMode.NONE
+        wans_dualwan: dict[int, DualWanOrigin] = {
+            i: DualWanOrigin(part.lower()) if part.lower() in DualWanOrigin._value2member_map_ else DualWanOrigin.NONE
             for i, part in enumerate(wans_dualwan_raw)
         }
 
-        dualwan_enabled = caps.is_supported("dualwan") and DualWanMode.NONE not in set(wans_dualwan.values())
+        dualwan_enabled = caps.is_supported("dualwan") and DualWanOrigin.NONE not in set(wans_dualwan.values())
         return DualWanInfo(
-            modes=wans_dualwan,
+            wan_origins=wans_dualwan,
             wan0_enable=to_bool(nvrams.get("wan0_enable", "0")),
             wan1_enable=to_bool(nvrams.get("wan1_enable", "0")),
             active_wan_unit=active_wan_unit,
-            enabled=dualwan_enabled
+            enabled=dualwan_enabled,
+            wans_mode=WanMode(nvrams["wans_mode"])
         )
 
+    def get_wan_connection_info(self, wan_index: int = 0) -> WanConnectionInfo:
+        nvrams = self.__get_nvram(f"wan{wan_index}_state_t", f"wan{wan_index}_sbstate_t",
+                                  f"wan{wan_index}_auxstate_t", "link_internet")
+        return WanConnectionInfo(
+            state=WanState(int(nvrams[f"wan{wan_index}_state_t"])),
+            substate=WanSubState(int(nvrams[f"wan{wan_index}_sbstate_t"])),
+            auxstate=WanAuxState(int(nvrams[f"wan{wan_index}_auxstate_t"])),
+            link_internet=LinkInternet(int(nvrams["link_internet"]))
+        )
+
+    def get_dsl_info(self) -> DslInfo:
+        nvrams = self.__get_nvram("dsl0_proto", "dslx_transmode")
+        return DslInfo(
+            proto=WanDslProtoType(nvrams["dsl0_proto"]),
+            transmode=DslTransMode(nvrams["dslx_transmode"]),
+        )
+
+    def get_wan_info(self, wan_index: int = 0) -> WanInfo:
+        dual_wan_info = self.get_dual_wan_info()
+        wan_connection_info = self.get_wan_connection_info(wan_index)
+        status = WanStatus.CONNECTED if wan_connection_info.is_connected else WanStatus.DISCONNECTED
+        if (dual_wan_info.enabled
+                and dual_wan_info.active_wan_unit != wan_index
+                and dual_wan_info.wans_mode in [WanMode.FAIL_BACK, WanMode.FAIL_OVER]):
+            status = WanStatus.STANDBY
+        wan_info = WanInfo(status=status,
+                           connection_info=wan_connection_info)
+        caps = self.get_supported_features()
+        if status == WanStatus.CONNECTED:
+            nvrams = self.__get_nvram(f"wan{wan_index}_ipaddr", f"wan{wan_index}_proto")
+            wan_info.ipaddr = nvrams[f"wan{wan_index}_ipaddr"]
+            wan_info.proto = WanProtoType(nvrams[f"wan{wan_index}_proto"])
+            wan_origin = dual_wan_info.wan_origins[wan_index]
+            if caps.is_supported("usbX") and wan_origin == DualWanOrigin.USB:
+                wan_info.proto = WanProtoType.USB
+            elif caps.is_supported("dsl") and wan_origin == DualWanOrigin.DSL:
+                dsl_info = self.get_dsl_info()
+                if (dsl_info.transmode == DslTransMode.ATM
+                        and dsl_info.proto in [WanDslProtoType.IPoA, WanDslProtoType.PPPoA]):
+                    wan_info.proto = WanProtoType(dsl_info.proto.value)
+        return wan_info
+
+    def get_network_wan_info(self) -> NetworkWanInfo:
+        sw_mode = self.get_sw_mode()
+        network_wan_info = NetworkWanInfo(mode = sw_mode)
+        if sw_mode == SwMode.RT:
+            network_wan_info.primary_wan = self.get_wan_info(0)
+            dual_wan_info = self.get_dual_wan_info()
+            network_wan_info.dual_wan_info = dual_wan_info
+            if dual_wan_info.enabled:
+                network_wan_info.secondary_wan = self.get_wan_info(1)
+        elif sw_mode == SwMode.AP:
+            nvrams = self.__get_nvram("lan_ipaddr", "lan_proto")
+            network_wan_info.lan_info = LanInfo(
+                state=LanState.CONNECTED,
+                ipaddr=nvrams["lan_ipaddr"],
+                proto=LanProtoType(nvrams["lan_proto"]),
+            )
+        return network_wan_info
 
 
 class RouterClientFactory:
