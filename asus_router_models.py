@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, tzinfo, time
 from enum import Enum
-
 from typing import Optional
+
 
 @dataclass
 class TemperatureInfo:
@@ -31,6 +31,29 @@ class UptimeInfo:
     boottime: int
 
 @dataclass
+class RebootScheduleConf:
+    weekday_mask: int
+    """
+    Bit-mask for weekday reboot, 0=Sunday, 1=Monday, 2=Tuesday, etc.
+    """
+    hh: int
+    mm: int
+
+    def is_weekday_enabled(self, weekday: int) -> bool:
+        weekday_index_asus = (weekday + 1) % 7
+        return ((self.weekday_mask >> (6 - weekday_index_asus)) & 1) == 1
+
+    def set_time(self, dt: datetime) -> datetime:
+        return dt.replace(hour=self.hh, minute=self.mm, second=0, microsecond=0)
+
+
+@dataclass
+class RebootScheduleInfo:
+    next_at: datetime
+    until_ms: int
+    schedule: RebootScheduleConf
+
+@dataclass
 class ThroughputInfo:
     total_upload_bytes: int
     total_download_bytes: int
@@ -52,6 +75,7 @@ class WifiBand(Enum):
 @dataclass
 class WifiInfo:
     bands_count: dict[WifiBand, int]
+    wps_enabled: bool
 
     def is_supported(self, b: WifiBand) -> bool:
         return bool(self.bands_count.get(b, 0))
@@ -93,7 +117,7 @@ class RouterInfo:
     sw_mode: SwMode
     caps: RouterFeatureCapabilities
     uptime: UptimeInfo
-    wifi_info: WifiInfo
+    reboot_schedule: Optional[RebootScheduleInfo]
     serial_no: str
 
 

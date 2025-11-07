@@ -4,6 +4,7 @@ import base64
 import json
 import re
 from collections import Counter
+from datetime import timedelta
 
 import requests
 
@@ -79,6 +80,39 @@ class RouterClient:
         boottime = int(uptime_raw[1].split(" ")[0])
         return UptimeInfo(systime=systime, boottime=boottime)
 
+    def _parse_schedule(self, schedule: str) -> RebootScheduleConf:
+        mask = int(schedule[:7], 2)
+        hh = int(schedule[7:9])
+        mm = int(schedule[9:11])
+        return RebootScheduleConf(
+            weekday_mask=mask,
+            hh=hh,
+            mm=mm
+        )
+
+    def get_reboot_schedule_time(self) -> Optional[RebootScheduleInfo]:
+        caps = self.get_supported_features()
+        if not caps.is_supported("reboot_schedule"):
+            return None
+        nvrams = self.__get_nvram("reboot_schedule_enable", "reboot_schedule")
+        if not to_bool(nvrams.get("reboot_schedule_enable", "0")):
+            return None
+        reboot_schedule = self._parse_schedule(nvrams["reboot_schedule"])
+        uptime = self.get_uptime()
+        systime = uptime.systime
+        for delta in range(8):
+            day_dt = systime + timedelta(days=delta)
+            if reboot_schedule.is_weekday_enabled(day_dt.weekday()):
+                candidate = reboot_schedule.set_time(day_dt)
+                if delta > 0 or candidate >= systime:
+                    until_ms = max(0, int((candidate - systime).total_seconds() * 1000))
+                    return RebootScheduleInfo(
+                        next_at=candidate,
+                        until_ms=until_ms,
+                        schedule=reboot_schedule
+                    )
+        return None
+
     def get_cpu_usage(self) -> list[CpuInfo]:
         response = self.__get_hook("cpu_usage")
         data = json.loads("{" + response[14:])
@@ -124,6 +158,14 @@ class RouterClient:
             usb_devices.append(UsbDeviceType(usb_status))
         return usb_devices
 
+    def get_wifi_info(self) -> WifiInfo:
+        wl_nband_info = self.get_wl_nband_info()
+        nvrams = self.__get_nvram("wps_enable")
+        return WifiInfo(
+            bands_count=wl_nband_info,
+            wps_enabled=to_bool(nvrams.get("wps_enable", "0"))
+        )
+
     def get_info(self) -> RouterInfo:
         nvrams = self.__get_nvram("productid", "lan_hwaddr", "lan_hostname", "odmpid", "hardware_version",
                                   "bl_version", "svc_ready", "qos_enable", "bwdpi_app_rulelist", "qos_type", "firmver",
@@ -132,7 +174,8 @@ class RouterClient:
         sw_mode = self.get_sw_mode()
         caps = self.get_supported_features()
         uptime = self.get_uptime()
-        wl_nband_info = self.get_wl_nband_info()
+        reboot_schedule = self.get_reboot_schedule_time()
+
         return RouterInfo(
             product_id=nvrams["productid"],
             lan_hwaddr=nvrams["lan_hwaddr"],
@@ -152,9 +195,7 @@ class RouterClient:
             caps=caps,
             uptime=uptime,
             serial_no=nvrams["serial_no"],
-            wifi_info=WifiInfo(
-                bands_count=wl_nband_info
-            )
+            reboot_schedule=reboot_schedule
         )
 
     def get_netdev(self) -> NetdevInfo:

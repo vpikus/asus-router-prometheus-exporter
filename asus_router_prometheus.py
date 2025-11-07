@@ -96,6 +96,14 @@ uptime_seconds = Gauge(
     registry=registry
 )
 
+# Until next reboot metrics
+next_reboot_seconds = Gauge(
+    "asus_router_reboot_schedule_second_until_next",
+    "Seconds until next reboot",
+    labelnames=["product_id"],
+    registry=registry
+)
+
 # Network throughput metrics - Bridge
 bridge_tx_bytes = Counter(
     "asus_router_netdev_bridge_transmit_bytes_total",
@@ -283,6 +291,7 @@ class RouterMetricsCollector:
                 self._collect_cpu_metrics()
                 self._collect_memory_metrics()
                 self._collect_network_metrics()
+                # TODO ADD Metrics self.client.get_network_wan_info()
             except Exception as e:
                 logger.error(f"Error collecting metrics: {e}")
                 scrape_errors_total.inc()
@@ -403,6 +412,12 @@ class RouterMetricsCollector:
             router_info.labels(product_id=self.router_info.product_id).set(1)
 
             uptime_seconds.labels(product_id=self.router_info.product_id).set(self.router_info.uptime.boottime)
+            reboot_schedule = self.router_info.reboot_schedule
+            if reboot_schedule:
+                next_reboot_seconds.labels(product_id=self.router_info.product_id).set(reboot_schedule.until_ms / 1000)
+                logger.debug("Reboot schedule collected")
+            else:
+                next_reboot_seconds.labels(product_id=self.router_info.product_id).clear()
             logger.debug(f"Router info collected: product_id={self.router_info.product_id}")
         except Exception as e:
             logger.warning(f"Failed to collect router info: {e}")
