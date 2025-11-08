@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Tuple, Iterable, Mapping
 
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, start_http_server
-from asus_router_prometheus_utils import *
+from prometheus_client import CollectorRegistry, Counter, Info, Gauge, Histogram, start_http_server
 
 import asus_router_client
 
@@ -39,140 +39,135 @@ logger = logging.getLogger(__name__)
 registry = CollectorRegistry()
 
 # Temperature metrics
-cpu_temp_gauge = Gauge(
+cpu_temp = Gauge(
     "asus_router_cpu_temperature_celsius",
     "CPU temperature in Celsius",
-    labelnames=["product_id"],
-    registry=registry
+    ["product_id"],
+    registry=registry,
 )
 
-# CPU metrics (cumulative counters since boot)
 cpu_usage_counter = Counter(
     "asus_router_cpu_usage",
     "Busy time (user+system+irq+...) in jiffies/ticks since boot",
-    labelnames=["product_id", "cpu_id"],
-    registry=registry
+    ["product_id", "cpu_id"],
+    registry=registry,
 )
 
 cpu_total_counter = Counter(
     "asus_router_cpu_total",
     "Total time units (jiffies/ticks) elapsed since boot",
-    labelnames=["product_id", "cpu_id"],
-    registry=registry
+    ["product_id", "cpu_id"],
+    registry=registry,
 )
 
-# CPU usage percentage (computed from deltas between samples)
 cpu_usage_percent_gauge = Gauge(
     "asus_router_cpu_usage_percent",
     "CPU usage percentage (Δusage / Δtotal * 100)",
-    labelnames=["product_id", "cpu_id"],
-    registry=registry
+    ["product_id", "cpu_id"],
+    registry=registry,
 )
 
-# Memory metrics
 memory_total_bytes = Gauge(
     "asus_router_memory_total_bytes",
     "Total memory in bytes",
-    labelnames=["product_id"],
-    registry=registry
+    ["product_id"],
+    registry=registry,
 )
 
 memory_used_bytes = Gauge(
     "asus_router_memory_used_bytes",
     "Used memory in bytes",
-    labelnames=["product_id"],
-    registry=registry
+    ["product_id"],
+    registry=registry,
 )
 
 memory_free_bytes = Gauge(
     "asus_router_memory_free_bytes",
     "Free memory in bytes",
-    labelnames=["product_id"],
-    registry=registry
+    ["product_id"],
+    registry=registry,
+)
+
+# опционально (удобно для панелей/алертов)
+memory_used_percent = Gauge(
+    "asus_router_memory_used_percent",
+    "Memory usage percentage (used / total * 100)",
+    ["product_id"],
+    registry=registry,
+)
+
+bridge_tx_bytes = Counter(
+    "asus_router_netdev_bridge_transmit_bytes_total",
+    "Total bytes transmitted on bridge interface",
+    ["product_id"],
+    registry=registry,
+)
+bridge_rx_bytes = Counter(
+    "asus_router_netdev_bridge_receive_bytes_total",
+    "Total bytes received on bridge interface",
+    ["product_id"],
+    registry=registry,
+)
+
+wired_tx_bytes = Counter(
+    "asus_router_netdev_wired_transmit_bytes_total",
+    "Total bytes transmitted on wired interface",
+    ["product_id"],
+    registry=registry,
+)
+wired_rx_bytes = Counter(
+    "asus_router_netdev_wired_receive_bytes_total",
+    "Total bytes received on wired interface",
+    ["product_id"],
+    registry=registry,
+)
+
+internet_tx_bytes = Counter(
+    "asus_router_netdev_internet_transmit_bytes_total",
+    "Total bytes transmitted on internet interface",
+    ["product_id", "interface_id"],
+    registry=registry,
+)
+internet_rx_bytes = Counter(
+    "asus_router_netdev_internet_receive_bytes_total",
+    "Total bytes received on internet interface",
+    ["product_id", "interface_id"],
+    registry=registry,
+)
+
+wireless_tx_bytes = Counter(
+    "asus_router_netdev_wireless_transmit_bytes_total",
+    "Total bytes transmitted on wireless interface",
+    ["product_id", "interface_id"],
+    registry=registry,
+)
+wireless_rx_bytes = Counter(
+    "asus_router_netdev_wireless_receive_bytes_total",
+    "Total bytes received on wireless interface",
+    ["product_id", "interface_id"],
+    registry=registry,
+)
+
+router_info = Info(
+    "asus_router_info",
+    "Router information (static details such as product ID, model, firmware)",
+    registry=registry,
 )
 
 # Uptime metrics
 uptime_seconds = Gauge(
     "asus_router_uptime_seconds",
     "Router uptime in seconds",
-    labelnames=["product_id"],
-    registry=registry
+    ["product_id"],
+    registry=registry,
 )
 
 # Until next reboot metrics
 next_reboot_seconds = Gauge(
     "asus_router_reboot_schedule_second_until_next",
-    "Seconds until next reboot",
-    labelnames=["product_id"],
-    registry=registry
-)
-
-# Network throughput metrics - Bridge
-bridge_tx_bytes = Counter(
-    "asus_router_netdev_bridge_transmit_bytes_total",
-    "Total bytes transmitted on bridge interface",
-    labelnames=["product_id"],
-    registry=registry
-)
-
-bridge_rx_bytes = Counter(
-    "asus_router_netdev_bridge_receive_bytes_total",
-    "Total bytes received on bridge interface",
-    labelnames=["product_id"],
-    registry=registry
-)
-
-# Network throughput metrics - Wired
-wired_tx_bytes = Counter(
-    "asus_router_netdev_wired_transmit_bytes_total",
-    "Total bytes transmitted on wired interface",
-    labelnames=["product_id"],
-    registry=registry
-)
-
-wired_rx_bytes = Counter(
-    "asus_router_netdev_wired_receive_bytes_total",
-    "Total bytes received on wired interface",
-    labelnames=["product_id"],
-    registry=registry
-)
-
-# Network throughput metrics - Internet
-internet_tx_bytes = Counter(
-    "asus_router_netdev_internet_transmit_bytes_total",
-    "Total bytes transmitted on internet interface",
-    labelnames=["product_id", "interface_id"],
-    registry=registry
-)
-
-internet_rx_bytes = Counter(
-    "asus_router_netdev_internet_receive_bytes_total",
-    "Total bytes received on internet interface",
-    labelnames=["product_id", "interface_id"],
-    registry=registry
-)
-
-# Network throughput metrics - Wireless
-wireless_tx_bytes = Counter(
-    "asus_router_netdev_wireless_transmit_bytes_total",
-    "Total bytes transmitted on wireless interface",
-    labelnames=["product_id", "interface_id"],
-    registry=registry
-)
-
-wireless_rx_bytes = Counter(
-    "asus_router_netdev_wireless_receive_bytes_total",
-    "Total bytes received on wireless interface",
-    labelnames=["product_id", "interface_id"],
-    registry=registry
-)
-
-# Router info metric
-router_info = Gauge(
-    "asus_router_info",
-    "Router information (product ID and other details)",
-    labelnames=["product_id"],
-    registry=registry
+    "Seconds until next scheduled reboot",
+    ["product_id"],
+    registry=registry,
 )
 
 wans = {
@@ -248,16 +243,103 @@ def _b(v: bool | int) -> int:
     """bool/int → 0/1"""
     return 1 if bool(v) else 0
 
-def _unit(u: int) -> str:
-    """unit label must be str"""
-    return str(u)
+def set_onehot_enum(
+    gauge: Gauge,
+    base_labels: Mapping[str, str],
+    enum_values: Iterable,
+    current_value,
+    extra_label_name: str,
+    get_label_value=lambda e: getattr(e, "value", getattr(e, "name", str(e))),
+):
+    for e in enum_values:
+        labels = dict(base_labels)
+        labels[extra_label_name] = get_label_value(e)
+        gauge.labels(**labels).set(1 if e == current_value else 0)
 
+def zero_onehot_enum(
+    gauge: Gauge,
+    base_labels: Mapping[str, str],
+    enum_values: Iterable,
+    extra_label_name: str,
+    get_label_value=lambda e: getattr(e, "value", getattr(e, "name", str(e))),
+):
+    for e in enum_values:
+        labels = dict(base_labels)
+        labels[extra_label_name] = get_label_value(e)
+        gauge.labels(**labels).set(0)
+
+def _inc_if_positive(counter_child, delta: int):
+    if delta > 0:
+        counter_child.inc(delta)
+
+class _CpuMetricChildren:
+    def __init__(self):
+        self.temp: Dict[str, any] = {}
+        self.usage: Dict[Tuple[str, str], any] = {}
+        self.total: Dict[Tuple[str, str], any] = {}
+        self.percent: Dict[Tuple[str, str], any] = {}
+
+    def temp_child(self, product_id: str):
+        c = self.temp.get(product_id)
+        if c is None:
+            c = cpu_temp.labels(product_id=product_id)
+            self.temp[product_id] = c
+        return c
+
+    def usage_child(self, product_id: str, cpu_id: str):
+        key = (product_id, cpu_id)
+        c = self.usage.get(key)
+        if c is None:
+            c = cpu_usage_counter.labels(product_id=product_id, cpu_id=cpu_id)
+            self.usage[key] = c
+        return c
+
+    def total_child(self, product_id: str, cpu_id: str):
+        key = (product_id, cpu_id)
+        c = self.total.get(key)
+        if c is None:
+            c = cpu_total_counter.labels(product_id=product_id, cpu_id=cpu_id)
+            self.total[key] = c
+        return c
+
+    def percent_child(self, product_id: str, cpu_id: str):
+        key = (product_id, cpu_id)
+        c = self.percent.get(key)
+        if c is None:
+            c = cpu_usage_percent_gauge.labels(product_id=product_id, cpu_id=cpu_id)
+            self.percent[key] = c
+        return c
+
+class _MemMetricChildren:
+    def __init__(self):
+        self.total = {}
+        self.used = {}
+        self.free = {}
+        self.used_pct = {}
+
+    def for_pid(self, pid: str):
+        # возврат подготовленных childs для данного product_id
+        total = self.total.get(pid)
+        if total is None:
+            total = memory_total_bytes.labels(product_id=pid); self.total[pid] = total
+        used = self.used.get(pid)
+        if used is None:
+            used = memory_used_bytes.labels(product_id=pid); self.used[pid] = used
+        free = self.free.get(pid)
+        if free is None:
+            free = memory_free_bytes.labels(product_id=pid); self.free[pid] = free
+        used_pct = self.used_pct.get(pid)
+        if used_pct is None:
+            used_pct = memory_used_percent.labels(product_id=pid); self.used_pct[pid] = used_pct
+        return total, used, free, used_pct
 
 class RouterMetricsCollector:
     """Collects metrics from ASUS router and updates Prometheus metrics."""
 
     def __init__(self, client: asus_router_client.RouterClient):
         self.client = client
+        self._cpu_children = _CpuMetricChildren()
+        self._mem_children = _MemMetricChildren()
         self.router_info: asus_router_client.RouterInfo | None = None
         # Track previous CPU samples for percentage calculation
         # Format: {cpu_id: {"usage": value, "total": value}}
@@ -270,6 +352,29 @@ class RouterMetricsCollector:
         #     "wireless": {interface_id: ThroughputSample}
         # }
         self.previous_network_samples = {}
+
+    def _get_base_labels(self, **extra_labels) -> Dict[str, str]:
+        """
+        Get base labels dict with product_id and any extra labels.
+
+        Args:
+            **extra_labels: Additional labels to include (e.g., unit, interface_id)
+
+        Returns:
+            Dict with product_id and extra labels
+        """
+        labels = {"product_id": self.router_info.product_id}
+        labels.update(extra_labels)
+        return labels
+
+    @staticmethod
+    def _kb_to_bytes(kb: int | float | None) -> float | None:
+        if kb is None:
+            return None
+        try:
+            return float(kb) * 1024.0
+        except Exception:
+            return None
 
     @staticmethod
     def _calculate_delta(current: int, previous: int) -> int:
@@ -285,38 +390,49 @@ class RouterMetricsCollector:
     @staticmethod
     def _create_network_samples(netdev_info: asus_router_client.NetdevInfo) -> dict:
         """
-        Create network samples from current netdev info.
-
-        Args:
-            netdev_info: Current network device information
-
-        Returns:
-            Dictionary with network samples for all interfaces
+        Prepare snapshot of current counters for delta math on next scrape.
         """
         return {
             "bridge": ThroughputSample(
                 tx=netdev_info.bridge.total_upload_bytes,
-                rx=netdev_info.bridge.total_download_bytes
+                rx=netdev_info.bridge.total_download_bytes,
             ),
             "wired": ThroughputSample(
                 tx=netdev_info.wired.total_upload_bytes,
-                rx=netdev_info.wired.total_download_bytes
+                rx=netdev_info.wired.total_download_bytes,
             ),
             "internet": {
                 iid: ThroughputSample(
-                    tx=throughput.total_upload_bytes,
-                    rx=throughput.total_download_bytes
-                )
-                for iid, throughput in netdev_info.internet.items()
+                    tx=th.total_upload_bytes,
+                    rx=th.total_download_bytes,
+                ) for iid, th in netdev_info.internet.items()
             },
             "wireless": {
                 wid: ThroughputSample(
-                    tx=throughput.total_upload_bytes,
-                    rx=throughput.total_download_bytes
-                )
-                for wid, throughput in netdev_info.wireless.items()
-            }
+                    tx=th.total_upload_bytes,
+                    rx=th.total_download_bytes,
+                ) for wid, th in netdev_info.wireless.items()
+            },
         }
+
+    def _collect_simple_interface_metrics(self, interface_type: str, current_throughput,
+                                          prev_throughput, tx_counter, rx_counter) -> None:
+        """
+        Update metrics for simple interfaces with no sub-interfaces (bridge, wired).
+
+        Args:
+            interface_type: Type of interface ("bridge" or "wired")
+            current_throughput: Current interface throughput data
+            prev_throughput: Previous throughput sample (ThroughputSample)
+            tx_counter: Prometheus counter for transmit bytes
+            rx_counter: Prometheus counter for receive bytes
+        """
+        base_labels = self._get_base_labels()
+        delta_tx = self._calculate_delta(current_throughput.total_upload_bytes, prev_throughput.tx)
+        delta_rx = self._calculate_delta(current_throughput.total_download_bytes, prev_throughput.rx)
+        tx_counter.labels(**base_labels).inc(delta_tx)
+        rx_counter.labels(**base_labels).inc(delta_rx)
+        logger.debug(f"[{base_labels['product_id']}] {interface_type.capitalize()}: tx Δ={delta_tx}, rx Δ={delta_rx}")
 
     def _update_interface_metrics(self, interface_type: str, interfaces: dict,
                                   prev_interfaces: dict, tx_counter, rx_counter) -> None:
@@ -330,18 +446,29 @@ class RouterMetricsCollector:
             tx_counter: Prometheus counter for transmit bytes
             rx_counter: Prometheus counter for receive bytes
         """
+        base_labels = self._get_base_labels()
         for interface_id, throughput in interfaces.items():
+            labels = self._get_base_labels(interface_id=str(interface_id))
             if interface_id in prev_interfaces:
                 prev_iface = prev_interfaces[interface_id]
                 delta_tx = self._calculate_delta(throughput.total_upload_bytes, prev_iface.tx)
                 delta_rx = self._calculate_delta(throughput.total_download_bytes, prev_iface.rx)
             else:
-                logger.debug(f"{interface_type.capitalize()} interface {interface_id} - first sample, storing baseline")
+                logger.debug(f"[{base_labels['product_id']}] {interface_type.capitalize()} interface {interface_id} - first sample, storing baseline")
                 delta_tx = 0
                 delta_rx = 0
 
-            tx_counter.labels(product_id=self.router_info.product_id, interface_id=str(interface_id)).inc(delta_tx)
-            rx_counter.labels(product_id=self.router_info.product_id, interface_id=str(interface_id)).inc(delta_rx)
+            tx_counter.labels(**labels).inc(delta_tx)
+            rx_counter.labels(**labels).inc(delta_rx)
+            logger.debug(f"[{base_labels['product_id']}] {interface_type.capitalize()} {interface_id}: tx Δ={delta_tx}, rx Δ={delta_rx}")
+
+    @staticmethod
+    def _set_gauge_safe(child, value: float | None):
+        """Set gauge value; if None/invalid -> NaN to avoid misleading zeroes."""
+        try:
+            child.set(float(value) if value is not None and not math.isnan(value) else float("nan"))
+        except Exception as e:
+            logger.warning(f"Failed to set gauge: {e}")
 
     def collect_all_metrics(self):
         """Collect all available metrics from the router."""
@@ -365,18 +492,18 @@ class RouterMetricsCollector:
                 raise
 
     def _collect_wan_info_metrics(self):
-        pid = self.router_info.product_id
+        base_labels = self._get_base_labels()
 
         net_wan_info = self.client.get_network_wan_info()
-        wans["link_internet"].labels(product_id=pid).set(net_wan_info.has_internet)
+        wans["link_internet"].labels(**base_labels).set(net_wan_info.has_internet)
 
         dual = net_wan_info.dual_wan_info
         if dual is not None:
-            wans["dualwan_enabled"].labels(product_id=pid).set(_b(dual.enabled))
+            wans["dualwan_enabled"].labels(**base_labels).set(_b(dual.enabled))
             # one-hot по режимам
             set_onehot_enum(
                 wans["dualwan_mode"],
-                {"product_id": pid},
+                base_labels,
                 asus_router_client.WanMode,
                 dual.wans_mode,
                 extra_label_name="mode",
@@ -384,10 +511,10 @@ class RouterMetricsCollector:
             )
         else:
             # не чистим серии, просто обнулим — стабильнее для прометея
-            wans["dualwan_enabled"].labels(product_id=pid).set(0)
+            wans["dualwan_enabled"].labels(**base_labels).set(0)
             zero_onehot_enum(
                 wans["dualwan_mode"],
-                {"product_id": pid},
+                base_labels,
                 asus_router_client.WanMode,
                 extra_label_name="mode",
                 get_label_value=lambda e: e.value,
@@ -397,184 +524,224 @@ class RouterMetricsCollector:
         self._collect_wan_metrics(0, net_wan_info.primary_wan)
         self._collect_wan_metrics(1, net_wan_info.secondary_wan)
 
-
     def _collect_wan_metrics(self, unit: int, wan_info: Optional[asus_router_client.WanInfo]):
-        pid = self.router_info.product_id
-        base = {"product_id": pid, "unit": _unit(unit)}
+        base_labels = self._get_base_labels(unit=str(unit))
 
         if wan_info is None:
             # WAN отсутствует: обнулить one-hot и простые gauge
             zero_onehot_enum(
-                wans["wan_auxstate"], base, asus_router_client.WanAuxState,
+                wans["wan_auxstate"], base_labels, asus_router_client.WanAuxState,
                 extra_label_name="auxstate", get_label_value=lambda e: e.name
             )
             zero_onehot_enum(
-                wans["wan_state"], base, asus_router_client.WanState,
+                wans["wan_state"], base_labels, asus_router_client.WanState,
                 extra_label_name="state", get_label_value=lambda e: e.name
             )
             zero_onehot_enum(
-                wans["wan_substate"], base, asus_router_client.WanSubState,
+                wans["wan_substate"], base_labels, asus_router_client.WanSubState,
                 extra_label_name="substate", get_label_value=lambda e: e.name
             )
             zero_onehot_enum(
-                wans["wan_status"], base, asus_router_client.WanStatus,
+                wans["wan_status"], base_labels, asus_router_client.WanStatus,
                 extra_label_name="status", get_label_value=lambda e: e.value
             )
-            wans["wan_online"].labels(**base).set(0)
-            wans["wan_active"].labels(**base).set(0)
+            wans["wan_online"].labels(**base_labels).set(0)
+            wans["wan_active"].labels(**base_labels).set(0)
             return
 
         conn = wan_info.connection_info
 
-        # one-hot по enum’ам
+        # one-hot по enum'ам
         set_onehot_enum(
-            wans["wan_auxstate"], base, asus_router_client.WanAuxState,
+            wans["wan_auxstate"], base_labels, asus_router_client.WanAuxState,
             conn.auxstate, extra_label_name="auxstate", get_label_value=lambda e: e.name
         )
         set_onehot_enum(
-            wans["wan_state"], base, asus_router_client.WanState,
+            wans["wan_state"], base_labels, asus_router_client.WanState,
             conn.state, extra_label_name="state", get_label_value=lambda e: e.name
         )
         set_onehot_enum(
-            wans["wan_substate"], base, asus_router_client.WanSubState,
+            wans["wan_substate"], base_labels, asus_router_client.WanSubState,
             conn.substate, extra_label_name="substate", get_label_value=lambda e: e.name
         )
 
-        wans["wan_online"].labels(**base).set(_b(conn.is_connected))
+        wans["wan_online"].labels(**base_labels).set(_b(conn.is_connected))
 
         set_onehot_enum(
-            wans["wan_status"], base, asus_router_client.WanStatus,
+            wans["wan_status"], base_labels, asus_router_client.WanStatus,
             wan_info.status, extra_label_name="status", get_label_value=lambda e: e.value
         )
 
-        wans["wan_active"].labels(**base).set(_b(wan_info.active))
+        wans["wan_active"].labels(**base_labels).set(_b(wan_info.active))
 
     def _collect_temperature_metrics(self):
-        """Collect temperature metrics."""
+        """Collect temperature metrics with logging and safety."""
+        pid = self.router_info.product_id
+        child = self._cpu_children.temp_child(pid)
         try:
             temp_info = self.client.get_core_temp()
-            cpu_temp_gauge.labels(product_id=self.router_info.product_id).set(temp_info.cpu)
-            logger.debug(f"Temperature collected: CPU={temp_info.cpu}C")
+            self._set_gauge_safe(child, temp_info.cpu)
+            logger.debug(f"[{pid}] CPU temperature: {temp_info.cpu:.1f}°C")
         except Exception as e:
-            logger.warning(f"Failed to collect temperature metrics: {e}")
-            scrape_errors_total.inc()
+            logger.warning(f"[{pid}] CPU temperature collection failed: {e}")
+            self._set_gauge_safe(child, None)
 
     def _collect_cpu_metrics(self):
         """Collect CPU usage metrics."""
+        """
+            Export:
+              - asus_router_cpu_usage / asus_router_cpu_total : Counter (inc by deltas)
+              - asus_router_cpu_usage_percent : Gauge computed from deltas
+            Resilient to wraps/resets; clamps percent to [0, 100].
+            """
+        pid = self.router_info.product_id
         try:
             cpu_infos = self.client.get_cpu_usage()
-            for i, cpu_info in enumerate(cpu_infos):
-                cpu_id = str(i)
-
-                # Compute CPU usage percentage from deltas between samples
-                if cpu_id in self.previous_cpu_samples:
-                    prev_sample = self.previous_cpu_samples[cpu_id]
-                    delta_usage = cpu_info.usage - prev_sample["usage"]
-                    delta_total = cpu_info.total - prev_sample["total"]
-
-                    cpu_usage_counter.labels(product_id=self.router_info.product_id, cpu_id=cpu_id).inc(delta_usage)
-                    cpu_total_counter.labels(product_id=self.router_info.product_id, cpu_id=cpu_id).inc(delta_total)
-
-                    if delta_total > 0:
-                        usage_percent = (delta_usage / delta_total) * 100
-                        # Clamp percentage to [0, 100] range
-                        usage_percent = max(0, min(100, usage_percent))
-                        cpu_usage_percent_gauge.labels(
-                            product_id=self.router_info.product_id, cpu_id=cpu_id
-                        ).set(usage_percent)
-                        logger.debug(f"CPU {cpu_id} usage: {usage_percent:.1f}%")
-
-                # Store current sample for next iteration
-                self.previous_cpu_samples[cpu_id] = {
-                    "usage": cpu_info.usage,
-                    "total": cpu_info.total
-                }
-
-            logger.debug(f"CPU metrics collected: {len(cpu_infos)} CPUs")
         except Exception as e:
-            logger.warning(f"Failed to collect CPU metrics: {e}")
-            scrape_errors_total.inc()
+            logger.warning(f"[{pid}] CPU usage collection failed: {e}")
+            return
+
+        for i, cpu_info in enumerate(cpu_infos):
+            cpu_id = str(i)
+
+            # store current sample
+            prev = self.previous_cpu_samples.get(cpu_id)
+
+            # on subsequent scrapes: compute deltas
+            if prev is not None:
+                du = self._calculate_delta(cpu_info.usage, prev["usage"])
+                dt = self._calculate_delta(cpu_info.total, prev["total"])
+
+                # update counters by deltas only (never set absolute values on Counter)
+                self._cpu_children.usage_child(pid, cpu_id).inc(max(0, du))
+                self._cpu_children.total_child(pid, cpu_id).inc(max(0, dt))
+
+                if dt > 0:
+                    pct = max(0.0, min(100.0, (du / dt) * 100.0))
+                    self._cpu_children.percent_child(pid, cpu_id).set(pct)
+                    logger.debug(f"[{pid}] CPU {cpu_id}: usage Δ={du}, total Δ={dt}, {pct:.1f}%")
+                else:
+                    # dt == 0 (no progress / error): set NaN to indicate unknown
+                    self._cpu_children.percent_child(pid, cpu_id).set(float("nan"))
+            else:
+                # first sample: cannot compute deltas yet → set percent NaN
+                self._cpu_children.percent_child(pid, cpu_id).set(float("nan"))
+
+            self.previous_cpu_samples[cpu_id] = {"usage": cpu_info.usage, "total": cpu_info.total}
+
+        logger.debug(f"[{pid}] CPU metrics collected: {len(cpu_infos)} CPUs")
 
     def _collect_memory_metrics(self):
-        """Collect memory usage metrics."""
+        """Collect memory usage metrics (KB from router -> bytes)."""
+        pid = self.router_info.product_id
+        total_c, used_c, free_c, used_pct_c = self._mem_children.for_pid(pid)
+
         try:
-            mem_info = self.client.get_memory_usage()
-            # ASUS API returns memory values in kilobytes, convert to bytes
-            memory_total_bytes.labels(product_id=self.router_info.product_id).set(mem_info.total_kb * 1024)
-            memory_used_bytes.labels(product_id=self.router_info.product_id).set(mem_info.used_kb * 1024)
-            memory_free_bytes.labels(product_id=self.router_info.product_id).set(mem_info.free_kb * 1024)
-            logger.debug(
-                f"Memory collected: total={mem_info.total_kb}KB, used={mem_info.used_kb}KB, free={mem_info.free_kb}KB"
-            )
+            mem = self.client.get_memory_usage()  # ожидается .total_kb / .used_kb / .free_kb
+            total_b = self._kb_to_bytes(mem.total_kb)
+            used_b = self._kb_to_bytes(mem.used_kb)
+            free_b = self._kb_to_bytes(mem.free_kb)
+
+            self._set_gauge_safe(total_c, total_b)
+            self._set_gauge_safe(used_c, used_b)
+            self._set_gauge_safe(free_c, free_b)
+
+            # процент, если можем посчитать
+            if total_b and total_b > 0 and used_b is not None:
+                pct = max(0.0, min(100.0, (used_b / total_b) * 100.0))
+                self._set_gauge_safe(used_pct_c, pct)
+            else:
+                self._set_gauge_safe(used_pct_c, None)
+
+            logger.debug(f"[{pid}] Memory: total={mem.total_kb}KB, used={mem.used_kb}KB, free={mem.free_kb}KB")
+
         except Exception as e:
-            logger.warning(f"Failed to collect memory metrics: {e}")
-            scrape_errors_total.inc()
+            logger.warning(f"[{pid}] Memory collection failed: {e}")
+            # выставим NaN, чтобы явно показать отсутствие данных
+            self._set_gauge_safe(total_c, None)
+            self._set_gauge_safe(used_c, None)
+            self._set_gauge_safe(free_c, None)
+            self._set_gauge_safe(used_pct_c, None)
 
     def _collect_network_metrics(self):
-        """Collect network throughput metrics."""
+        """Collect network throughput metrics.
+
+        Export:
+          - Network interface counters (bridge, wired, internet, wireless) via tx/rx bytes
+          - Resilient to wraps/resets; increments by deltas only
+        """
+        pid = self.router_info.product_id
         try:
             netdev_info = self.client.get_netdev()
-
-            # Initialize network samples tracking if not present
-            if not self.previous_network_samples:
-                self.previous_network_samples = self._create_network_samples(netdev_info)
-                logger.debug("Network samples initialized (first collection)")
-                return
-
-            # Bridge metrics
-            prev_bridge = self.previous_network_samples["bridge"]
-            delta_bridge_tx = self._calculate_delta(netdev_info.bridge.total_upload_bytes, prev_bridge.tx)
-            delta_bridge_rx = self._calculate_delta(netdev_info.bridge.total_download_bytes, prev_bridge.rx)
-            bridge_tx_bytes.labels(product_id=self.router_info.product_id).inc(delta_bridge_tx)
-            bridge_rx_bytes.labels(product_id=self.router_info.product_id).inc(delta_bridge_rx)
-
-            # Wired metrics
-            prev_wired = self.previous_network_samples["wired"]
-            delta_wired_tx = self._calculate_delta(netdev_info.wired.total_upload_bytes, prev_wired.tx)
-            delta_wired_rx = self._calculate_delta(netdev_info.wired.total_download_bytes, prev_wired.rx)
-            wired_tx_bytes.labels(product_id=self.router_info.product_id).inc(delta_wired_tx)
-            wired_rx_bytes.labels(product_id=self.router_info.product_id).inc(delta_wired_rx)
-
-            # Internet metrics
-            prev_internet = self.previous_network_samples.get("internet", {})
-            self._update_interface_metrics("internet", netdev_info.internet, prev_internet,
-                                           internet_tx_bytes, internet_rx_bytes)
-
-            # Wireless metrics
-            prev_wireless = self.previous_network_samples.get("wireless", {})
-            self._update_interface_metrics("wireless", netdev_info.wireless, prev_wireless,
-                                           wireless_tx_bytes, wireless_rx_bytes)
-
-            # Update previous samples for next iteration
-            self.previous_network_samples = self._create_network_samples(netdev_info)
-
-            logger.debug(
-                f"Network metrics collected: "
-                f"internet={len(netdev_info.internet)}, "
-                f"wireless={len(netdev_info.wireless)}"
-            )
         except Exception as e:
-            logger.warning(f"Failed to collect network metrics: {e}")
-            scrape_errors_total.inc()
+            logger.warning(f"[{pid}] Network collection failed: {e}")
+            return
+
+        # Initialize network samples tracking if not present
+        if not self.previous_network_samples:
+            self.previous_network_samples = self._create_network_samples(netdev_info)
+            logger.debug(f"[{pid}] Network samples initialized (first collection)")
+            return
+
+        # Bridge metrics
+        self._collect_simple_interface_metrics(
+            "bridge", netdev_info.bridge,
+            self.previous_network_samples["bridge"],
+            bridge_tx_bytes, bridge_rx_bytes
+        )
+
+        # Wired metrics
+        self._collect_simple_interface_metrics(
+            "wired", netdev_info.wired,
+            self.previous_network_samples["wired"],
+            wired_tx_bytes, wired_rx_bytes
+        )
+
+        # Internet metrics
+        prev_internet = self.previous_network_samples.get("internet", {})
+        self._update_interface_metrics("internet", netdev_info.internet, prev_internet,
+                                       internet_tx_bytes, internet_rx_bytes)
+
+        # Wireless metrics
+        prev_wireless = self.previous_network_samples.get("wireless", {})
+        self._update_interface_metrics("wireless", netdev_info.wireless, prev_wireless,
+                                       wireless_tx_bytes, wireless_rx_bytes)
+
+        # Update previous samples for next iteration
+        self.previous_network_samples = self._create_network_samples(netdev_info)
+
+        logger.debug(
+            f"[{pid}] Network metrics collected: "
+            f"internet={len(netdev_info.internet)}, "
+            f"wireless={len(netdev_info.wireless)}"
+        )
 
     def _collect_router_info(self):
-        """Collect router information."""
-        try:
-            self.router_info = self.client.get_info()
-            router_info.labels(product_id=self.router_info.product_id).set(1)
+        """Collect router static info and uptime metrics."""
+        info = self.client.get_info()
+        self.router_info = info  # store locally for reuse
+        base_labels = self._get_base_labels()
 
-            uptime_seconds.labels(product_id=self.router_info.product_id).set(self.router_info.uptime.boottime)
-            reboot_schedule = self.router_info.reboot_schedule
-            if reboot_schedule:
-                next_reboot_seconds.labels(product_id=self.router_info.product_id).set(reboot_schedule.until_ms / 1000)
-                logger.debug("Reboot schedule collected")
-            else:
-                next_reboot_seconds.labels(product_id=self.router_info.product_id).set(float("nan"))
-            logger.debug(f"Router info collected: product_id={self.router_info.product_id}")
-        except Exception as e:
-            logger.warning(f"Failed to collect router info: {e}")
-            scrape_errors_total.inc()
-            raise
+        # --- Static info ---
+        # Assuming info contains fields like product_id, model, fw_version, etc.
+        router_info.info({
+            "product_id": info.product_id,
+            "firmware": info.firmver,
+            "serial": info.serial_no,
+        })
+
+        # --- Uptime ---
+        uptime_seconds.labels(**base_labels).set(info.uptime.boottime)
+
+        # --- Next reboot ---
+        reboot_schedule = info.reboot_schedule
+        if reboot_schedule and reboot_schedule.until_ms is not None:
+            next_reboot_seconds.labels(**base_labels).set(reboot_schedule.until_ms / 1000)
+            logger.debug(f"[{base_labels['product_id']}] Reboot schedule in {reboot_schedule.until_ms / 1000:.0f}s")
+        else:
+            next_reboot_seconds.labels(**base_labels).set(float("nan"))
+
+        logger.debug(f"[{base_labels['product_id']}] Router info collected successfully")
 
 
 def create_app(router_host: str, router_auth: str, metrics_port: int = 8000):
