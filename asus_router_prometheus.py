@@ -13,8 +13,10 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, start_http_server
+from asus_router_prometheus_utils import *
 
 import asus_router_client
 
@@ -24,6 +26,7 @@ class ThroughputSample:
     """Sample of throughput metrics at a point in time."""
     tx: int
     rx: int
+
 
 # Configure logging
 logging.basicConfig(
@@ -172,6 +175,62 @@ router_info = Gauge(
     registry=registry
 )
 
+wans = {
+    "dualwan_enabled": Gauge(
+        "asus_router_dualwan_enabled",
+        "Dual WAN enabled",
+        ["product_id"],
+        registry=registry
+    ),
+    "dualwan_mode": Gauge(
+        "asus_router_dualwan_mode",
+        "Dual WAN mode (one-hot)",
+        ["product_id", "mode"],
+        registry=registry
+    ),
+    "link_internet": Gauge(
+        "asus_router_link_internet_status",
+        "Link internet status (0/1)",
+        ["product_id"],
+        registry=registry
+    ),
+    "wan_auxstate": Gauge(
+        "asus_router_wan_connection_auxstate",
+        "WAN cable/aux state (one-hot)",
+        ["product_id", "unit", "auxstate"],
+        registry=registry
+    ),
+    "wan_state": Gauge(
+        "asus_router_wan_connection_state",
+        "WAN state (one-hot)",
+        ["product_id", "unit", "state"],
+        registry=registry
+    ),
+    "wan_substate": Gauge(
+        "asus_router_wan_connection_substate",
+        "WAN substate (one-hot)",
+        ["product_id", "unit", "substate"],
+        registry=registry
+    ),
+    "wan_online": Gauge(
+        "asus_router_wan_connection_online",
+        "WAN online status (0/1)",
+        ["product_id", "unit"],
+        registry=registry
+    ),
+    "wan_status": Gauge(
+        "asus_router_wan_status", "WAN status (one-hot)",
+        ["product_id", "unit", "status"],
+        registry=registry
+    ),
+    "wan_active": Gauge(
+        "asus_router_wan_active",
+        "WAN active (0/1)",
+        ["product_id", "unit"],
+        registry=registry
+    ),
+}
+
 # Scrape duration and errors
 scrape_duration_seconds = Histogram(
     "asus_router_scrape_duration_seconds",
@@ -185,13 +244,21 @@ scrape_errors_total = Counter(
     registry=registry
 )
 
+def _b(v: bool | int) -> int:
+    """bool/int → 0/1"""
+    return 1 if bool(v) else 0
+
+def _unit(u: int) -> str:
+    """unit label must be str"""
+    return str(u)
+
 
 class RouterMetricsCollector:
     """Collects metrics from ASUS router and updates Prometheus metrics."""
 
     def __init__(self, client: asus_router_client.RouterClient):
         self.client = client
-        self.router_info:asus_router_client.RouterInfo | None = None
+        self.router_info: asus_router_client.RouterInfo | None = None
         # Track previous CPU samples for percentage calculation
         # Format: {cpu_id: {"usage": value, "total": value}}
         self.previous_cpu_samples = {}
@@ -252,7 +319,7 @@ class RouterMetricsCollector:
         }
 
     def _update_interface_metrics(self, interface_type: str, interfaces: dict,
-                                 prev_interfaces: dict, tx_counter, rx_counter) -> None:
+                                  prev_interfaces: dict, tx_counter, rx_counter) -> None:
         """
         Update metrics for a specific interface type (internet or wireless).
 
@@ -291,11 +358,96 @@ class RouterMetricsCollector:
                 self._collect_cpu_metrics()
                 self._collect_memory_metrics()
                 self._collect_network_metrics()
-                # TODO ADD Metrics self.client.get_network_wan_info()
+                self._collect_wan_info_metrics()
             except Exception as e:
                 logger.error(f"Error collecting metrics: {e}")
                 scrape_errors_total.inc()
                 raise
+
+    def _collect_wan_info_metrics(self):
+        pid = self.router_info.product_id
+
+        net_wan_info = self.client.get_network_wan_info()
+        wans["link_internet"].labels(product_id=pid).set(net_wan_info.has_internet)
+
+        dual = net_wan_info.dual_wan_info
+        if dual is not None:
+            wans["dualwan_enabled"].labels(product_id=pid).set(_b(dual.enabled))
+            # one-hot по режимам
+            set_onehot_enum(
+                wans["dualwan_mode"],
+                {"product_id": pid},
+                asus_router_client.WanMode,
+                dual.wans_mode,
+                extra_label_name="mode",
+                get_label_value=lambda e: e.value,  # "fo"/"fb"/"lb"
+            )
+        else:
+            # не чистим серии, просто обнулим — стабильнее для прометея
+            wans["dualwan_enabled"].labels(product_id=pid).set(0)
+            zero_onehot_enum(
+                wans["dualwan_mode"],
+                {"product_id": pid},
+                asus_router_client.WanMode,
+                extra_label_name="mode",
+                get_label_value=lambda e: e.value,
+            )
+
+        # первичный/вторичный WAN
+        self._collect_wan_metrics(0, net_wan_info.primary_wan)
+        self._collect_wan_metrics(1, net_wan_info.secondary_wan)
+
+
+    def _collect_wan_metrics(self, unit: int, wan_info: Optional[asus_router_client.WanInfo]):
+        pid = self.router_info.product_id
+        base = {"product_id": pid, "unit": _unit(unit)}
+
+        if wan_info is None:
+            # WAN отсутствует: обнулить one-hot и простые gauge
+            zero_onehot_enum(
+                wans["wan_auxstate"], base, asus_router_client.WanAuxState,
+                extra_label_name="auxstate", get_label_value=lambda e: e.name
+            )
+            zero_onehot_enum(
+                wans["wan_state"], base, asus_router_client.WanState,
+                extra_label_name="state", get_label_value=lambda e: e.name
+            )
+            zero_onehot_enum(
+                wans["wan_substate"], base, asus_router_client.WanSubState,
+                extra_label_name="substate", get_label_value=lambda e: e.name
+            )
+            zero_onehot_enum(
+                wans["wan_status"], base, asus_router_client.WanStatus,
+                extra_label_name="status", get_label_value=lambda e: e.value
+            )
+            wans["wan_online"].labels(**base).set(0)
+            wans["wan_active"].labels(**base).set(0)
+            return
+
+        conn = wan_info.connection_info
+
+        # one-hot по enum’ам
+        set_onehot_enum(
+            wans["wan_auxstate"], base, asus_router_client.WanAuxState,
+            conn.auxstate, extra_label_name="auxstate", get_label_value=lambda e: e.name
+        )
+        set_onehot_enum(
+            wans["wan_state"], base, asus_router_client.WanState,
+            conn.state, extra_label_name="state", get_label_value=lambda e: e.name
+        )
+        set_onehot_enum(
+            wans["wan_substate"], base, asus_router_client.WanSubState,
+            conn.substate, extra_label_name="substate", get_label_value=lambda e: e.name
+        )
+
+        wans["wan_online"].labels(**base).set(_b(conn.is_connected))
+
+        set_onehot_enum(
+            wans["wan_status"], base, asus_router_client.WanStatus,
+            wan_info.status, extra_label_name="status", get_label_value=lambda e: e.value
+        )
+
+        wans["wan_active"].labels(**base).set(_b(wan_info.active))
 
     def _collect_temperature_metrics(self):
         """Collect temperature metrics."""
@@ -386,12 +538,12 @@ class RouterMetricsCollector:
             # Internet metrics
             prev_internet = self.previous_network_samples.get("internet", {})
             self._update_interface_metrics("internet", netdev_info.internet, prev_internet,
-                                          internet_tx_bytes, internet_rx_bytes)
+                                           internet_tx_bytes, internet_rx_bytes)
 
             # Wireless metrics
             prev_wireless = self.previous_network_samples.get("wireless", {})
             self._update_interface_metrics("wireless", netdev_info.wireless, prev_wireless,
-                                          wireless_tx_bytes, wireless_rx_bytes)
+                                           wireless_tx_bytes, wireless_rx_bytes)
 
             # Update previous samples for next iteration
             self.previous_network_samples = self._create_network_samples(netdev_info)
@@ -417,7 +569,7 @@ class RouterMetricsCollector:
                 next_reboot_seconds.labels(product_id=self.router_info.product_id).set(reboot_schedule.until_ms / 1000)
                 logger.debug("Reboot schedule collected")
             else:
-                next_reboot_seconds.labels(product_id=self.router_info.product_id).clear()
+                next_reboot_seconds.labels(product_id=self.router_info.product_id).set(float("nan"))
             logger.debug(f"Router info collected: product_id={self.router_info.product_id}")
         except Exception as e:
             logger.warning(f"Failed to collect router info: {e}")

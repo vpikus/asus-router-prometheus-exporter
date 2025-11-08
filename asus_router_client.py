@@ -317,7 +317,8 @@ class RouterClient:
                 and dual_wan_info.wans_mode in [WanMode.FAIL_BACK, WanMode.FAIL_OVER]):
             status = WanStatus.STANDBY
         wan_info = WanInfo(status=status,
-                           connection_info=wan_connection_info)
+                           connection_info=wan_connection_info,
+                           active=dual_wan_info.active_wan_unit == wan_index)
         caps = self.get_supported_features()
         if status == WanStatus.CONNECTED:
             nvrams = self.__get_nvram(f"wan{wan_index}_ipaddr", f"wan{wan_index}_proto")
@@ -335,7 +336,11 @@ class RouterClient:
 
     def get_network_wan_info(self) -> NetworkWanInfo:
         sw_mode = self.get_sw_mode()
-        network_wan_info = NetworkWanInfo(mode = sw_mode)
+        nvrams = self.__get_nvram("link_internet")
+        network_wan_info = NetworkWanInfo(
+            mode=sw_mode,
+            link_internet=LinkInternet(int(nvrams["link_internet"])),
+        )
         if sw_mode == SwMode.RT:
             network_wan_info.primary_wan = self.get_wan_info(0)
             dual_wan_info = self.get_dual_wan_info()

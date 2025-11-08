@@ -215,16 +215,22 @@ class WanMode(Enum):
 class WanInfo:
     status: WanStatus
     connection_info: WanConnectionInfo
+    active: bool
     ipaddr: Optional[str] = None
     proto: Optional[WanProtoType] = None
 
 @dataclass
 class NetworkWanInfo:
     mode: SwMode
+    link_internet: LinkInternet
     dual_wan_info: Optional[DualWanInfo] = None
     primary_wan: Optional[WanInfo] = None
     secondary_wan: Optional[WanInfo] = None
     lan_info: Optional[LanInfo] = None
+
+    @property
+    def has_internet(self) -> bool:
+        return True if self.link_internet == LinkInternet.ONLINE else False
 
 class WanState(Enum):
     IDLE = 0
