@@ -160,6 +160,12 @@ class DualWanInfo:
     wans_mode: WanMode
     pass
 
+class QosType(Enum):
+    TRADITIONAL = 0
+    ADAPTIVE = 1
+    BANDWIDTH_LIMITER = 2
+    GEFORCE = 3
+    cake = 9
 
 @dataclass
 class RouterInfo:
@@ -171,12 +177,12 @@ class RouterInfo:
     bl_version: str
     svc_ready: bool
     qos_enable: bool
-    qos_type: int
+    qos_type: Optional[QosType]
     bwdpi_app_rulelist: str
     firmver: str
     extendno: str
     territory_code: str
-    re_mode: int
+    re_mode: bool
     sw_mode: SwMode
     caps: RouterFeatureCapabilities
     uptime: UptimeInfo
