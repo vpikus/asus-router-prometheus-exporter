@@ -170,6 +170,13 @@ next_reboot_seconds = Gauge(
     registry=registry,
 )
 
+router_mode = Gauge(
+    "asus_router_sw_mode",
+    "Asus router mode (one-hot)",
+    ["product_id", "sw_mode"],
+    registry=registry,
+)
+
 wans = {
     "dualwan_enabled": Gauge(
         "asus_router_dualwan_enabled",
@@ -732,6 +739,12 @@ class RouterMetricsCollector:
 
         # --- Uptime ---
         uptime_seconds.labels(**base_labels).set(info.uptime.boottime)
+
+        # --- SW Mode ---
+        set_onehot_enum(
+            router_mode, base_labels, asus_router_client.SwMode,
+            info.sw_mode, extra_label_name="sw_mode", get_label_value=lambda e: e.name
+        )
 
         # --- Next reboot ---
         reboot_schedule = info.reboot_schedule
