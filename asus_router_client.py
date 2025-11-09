@@ -80,7 +80,8 @@ class RouterClient:
         boottime = int(uptime_raw[1].split(" ")[0])
         return UptimeInfo(systime=systime, boottime=boottime)
 
-    def _parse_schedule(self, schedule: str) -> RebootScheduleConf:
+    @staticmethod
+    def _parse_schedule(schedule: str) -> RebootScheduleConf:
         mask = int(schedule[:7], 2)
         hh = int(schedule[7:9])
         mm = int(schedule[9:11])
@@ -158,13 +159,51 @@ class RouterClient:
             usb_devices.append(UsbDeviceType(usb_status))
         return usb_devices
 
-    def get_wifi_info(self) -> WifiInfo:
-        wl_nband_info = self.get_wl_nband_info()
-        nvrams = self.__get_nvram("wps_enable")
-        return WifiInfo(
-            bands_count=wl_nband_info,
-            wps_enabled=to_bool(nvrams.get("wps_enable", "0"))
+    def get_wireless_band_info(self, wl_unit: WifiUnit, repeater:bool) -> WifiBandInfo:
+        unit = f"{wl_unit.value}{'.1' if repeater else ''}"
+        nvrams = self.__get_nvram(f"wl{unit}_mbo_enable", f"wl{unit}_ssid", f"wl{unit}_nmode_x",
+                                  f"wl{unit}_auth_mode_x", f"wl{unit}_crypto", f"wl{unit}_mfp",
+                                  f"wl{unit}_wep_x", f"wl{unit}_closed", f"wl{unit}_hwaddr")
+        return WifiBandInfo(
+            ssid=nvrams[f"wl{unit}_ssid"],
+            mac=nvrams[f"wl{unit}_hwaddr"],
+            mode=WifiMode(int(nvrams[f"wl{unit}_nmode_x"])),
+            auth_mode=WifiAuthMode(nvrams[f"wl{unit}_auth_mode_x"]),
+            crypto=WifiCrypto(nvrams[f"wl{unit}_crypto"]),
+            mfp=WifiMfp(int(nvrams[f"wl{unit}_mfp"])),
+            wep=WifiWpsWep(int(nvrams[f"wl{unit}_wep_x"])),
+            hidde_ssid=to_bool(nvrams[f"wl{unit}_closed"]),
+            mbo_enabled=to_bool(nvrams.get(f"wl{unit}_mbo_enable", "0"))
         )
+
+
+    def get_wireless_info(self) -> WifiInfo:
+        wl_nband_info = self.get_wl_nband_info()
+        nvrams = self.__get_nvram("wps_enable", "wlc_band", "smart_connect_x")
+        wifi_info = WifiInfo(
+            bands_count=wl_nband_info,
+            wps_enabled=to_bool(nvrams.get("wps_enable", "0")),
+            smart_connect_enabled=to_bool(nvrams.get("smart_connect_enable", "0")),
+        )
+
+        caps = self.get_supported_features()
+        sw_mode = self.get_sw_mode()
+        wlc_band = nvrams[f"wlc_band"]
+        concurrep_support = caps.is_supported("concurrep")
+        if caps.is_supported("2.4G"):
+            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_2G))
+            wifi_info.band_2G_info = self.get_wireless_band_info(WifiUnit.WL_2G, repeater)
+        if caps.is_supported("5G"):
+            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_5G))
+            wifi_info.band_5G_info = self.get_wireless_band_info(WifiUnit.WL_5G, repeater)
+        if caps.is_supported("5G-2"):
+            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_5G_2))
+            wifi_info.band_5G_2_info = self.get_wireless_band_info(WifiUnit.WL_5G_2, repeater)
+        if caps.is_supported("wifi6e"):
+            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_6G))
+            wifi_info.band_6G_info = self.get_wireless_band_info(WifiUnit.WL_6G, repeater)
+
+        return wifi_info
 
     def get_info(self) -> RouterInfo:
         nvrams = self.__get_nvram("productid", "lan_hwaddr", "lan_hostname", "odmpid", "hardware_version",

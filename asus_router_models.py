@@ -76,9 +76,72 @@ class WifiBand(Enum):
 class WifiInfo:
     bands_count: dict[WifiBand, int]
     wps_enabled: bool
+    smart_connect_enabled: bool
+    band_2G_info: Optional[WifiBandInfo] = None
+    band_5G_info: Optional[WifiBandInfo] = None
+    band_5G_2_info: Optional[WifiBandInfo] = None
+    band_6G_info: Optional[WifiBandInfo] = None
 
     def is_supported(self, b: WifiBand) -> bool:
         return bool(self.bands_count.get(b, 0))
+
+class WifiMode(Enum):
+    AUTO = 0
+    N_ONLY = 1
+    LEGACY = 2
+    MIXED = 8
+    AX_ONLY = 9
+
+class WifiUnit(Enum):
+    WL_2G = 0
+    WL_5G = 1
+    WL_5G_2 = 2
+    WL_6G = 3 #???
+
+class WifiAuthMode(Enum):
+    OPEN = "open"
+    SHARED = "shared"
+    PSK = "psk"
+    PSK2 = "psk2"
+    SAE = "sae"
+    PSKPSK2 = "pskpsk2"
+    PSK2SAE = "psk2sae"
+    WPA = "wpa"
+    WPA2 = "wpa2"
+    WPAWPA2 = "wpawpa2"
+    RADIUS = "radius"
+
+class WifiCrypto(Enum):
+    AES = "aes"
+    TKIP_AES = "tkip+aes"
+
+class WifiMfp(Enum):
+    """
+    Protected Management Frames
+    """
+    DISABLE = 0
+    CAPABLE = 1
+    REQUIRED = 2
+
+class WifiWpsWep(Enum):
+    """
+    Wired Equivalent Privacy
+    """
+    NONE = 0
+    WEP_64b = 1
+    WEP_128b = 2
+
+@dataclass
+class WifiBandInfo:
+    ssid: str
+    mac: str
+    mode: WifiMode
+    auth_mode: WifiAuthMode
+    crypto: WifiCrypto
+    mfp: WifiMfp
+    wep: WifiWpsWep
+    hidde_ssid: bool
+    mbo_enabled: bool
 
 class DualWanOrigin(Enum):
     NONE = 'none'

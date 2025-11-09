@@ -233,6 +233,51 @@ wans = {
     ),
 }
 
+wireless = {
+    "wl_wps_enabled": Gauge(
+        "asus_router_wireless_wps_enabled",
+        "Wireless WPS enabled",
+        ["product_id"],
+        registry=registry
+    ),
+    "wl_smart_connect_enabled": Gauge(
+        "asus_router_wireless_smart_connect_enabled",
+        "Wireless Smart Connect enabled",
+        ["product_id"],
+        registry=registry
+    ),
+    "wl_band_info": Info(
+        "asus_router_wireless_band",
+        "Wireless Band info",
+["product_id", "wl_unit"],
+        registry=registry
+    ),
+    "wl_band_mode": Gauge(
+        "asus_router_wireless_band_mode",
+        "Wireless Band mode (one-hot)",
+        ["product_id", "wl_unit", "wl_mode"],
+        registry=registry
+    ),
+    "wl_auth_mode": Gauge(
+        "asus_router_wireless_auth_mode",
+        "Wireless Auth mode (one-hot)",
+        ["product_id", "wl_unit", "wl_auth_mode"],
+        registry=registry
+    ),
+    "wl_crypto": Gauge(
+        "asus_router_wireless_crypto",
+        "Wireless Crypto (one-hot)",
+        ["product_id", "wl_unit", "wl_crypto"],
+        registry=registry
+    ),
+    "wl_ssid_hidden": Gauge(
+        "asus_router_wireless_ssid_hidden",
+        "Wireless SSID (0, 1)",
+        ["product_id", "wl_unit"],
+        registry=registry
+    )
+}
+
 # Scrape duration and errors
 scrape_duration_seconds = Histogram(
     "asus_router_scrape_duration_seconds",
@@ -493,6 +538,7 @@ class RouterMetricsCollector:
                 self._collect_memory_metrics()
                 self._collect_network_metrics()
                 self._collect_wan_info_metrics()
+                self._collect_wireless_metrics()
             except Exception as e:
                 logger.error(f"Error collecting metrics: {e}")
                 scrape_errors_total.inc()
@@ -721,6 +767,56 @@ class RouterMetricsCollector:
             f"[{pid}] Network metrics collected: "
             f"internet={len(netdev_info.internet)}, "
             f"wireless={len(netdev_info.wireless)}"
+        )
+
+    def _collect_wireless_metrics(self):
+        base_labels = self._get_base_labels()
+        wireless_info = self.client.get_wireless_info()
+        wireless["wl_wps_enabled"].labels(**base_labels).set(_b(wireless_info.wps_enabled))
+        wireless["wl_smart_connect_enabled"].labels(**base_labels).set(_b(wireless_info.smart_connect_enabled))
+
+        self._collect_wileless_band_metrics(asus_router_client.WifiUnit.WL_2G, wireless_info.band_2G_info)
+        self._collect_wileless_band_metrics(asus_router_client.WifiUnit.WL_5G, wireless_info.band_5G_info)
+        self._collect_wileless_band_metrics(asus_router_client.WifiUnit.WL_5G_2, wireless_info.band_5G_2_info)
+        self._collect_wileless_band_metrics(asus_router_client.WifiUnit.WL_6G, wireless_info.band_6G_info)
+
+    def _collect_wileless_band_metrics(self, wl_unit: asus_router_client.WifiUnit, wl_unit_info: asus_router_client.WifiBandInfo):
+        if wl_unit_info is None:
+            return
+
+        base_labels = self._get_base_labels(wl_unit=str(wl_unit.value))
+        wireless["wl_band_info"].labels(**base_labels).info({
+            "wl_ssid": wl_unit_info.ssid,
+            "wl_mac": wl_unit_info.mac,
+        })
+
+        wireless["wl_ssid_hidden"].labels(**base_labels).set(_b(wl_unit_info.hidde_ssid))
+
+        set_onehot_enum(
+            wireless["wl_band_mode"],
+            base_labels,
+            asus_router_client.WifiMode,
+            wl_unit_info.mode,
+            extra_label_name="wl_mode",
+            get_label_value = lambda e: e.name
+        )
+
+        set_onehot_enum(
+            wireless["wl_auth_mode"],
+            base_labels,
+            asus_router_client.WifiAuthMode,
+            wl_unit_info.auth_mode,
+            extra_label_name="wl_auth_mode",
+            get_label_value=lambda e: e.value
+        )
+
+        set_onehot_enum(
+            wireless["wl_crypto"],
+            base_labels,
+            asus_router_client.WifiCrypto,
+            wl_unit_info.crypto,
+            extra_label_name="wl_crypto",
+            get_label_value=lambda e: e.value
         )
 
     def _collect_router_info(self):
