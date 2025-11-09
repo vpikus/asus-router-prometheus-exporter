@@ -133,3 +133,5 @@ dmypy.json
 
 # Claude
 .claude
+
+*.js
