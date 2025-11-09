@@ -829,8 +829,10 @@ class RouterMetricsCollector:
         # Assuming info contains fields like product_id, model, fw_version, etc.
         router_info.info({
             "product_id": info.product_id,
-            "firmware": info.firmver,
+            "firmware": f"{info.firmver}_{info.extendno}",
             "serial": info.serial_no,
+            "hostname": info.lan_hostname,
+            "mac": info.lan_hwaddr
         })
 
         # --- Uptime ---
