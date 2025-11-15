@@ -177,6 +177,13 @@ router_mode = Gauge(
     registry=registry,
 )
 
+software_update_available = Gauge(
+    "asus_router_software_update_available",
+    "Software update available (0/1)",
+    ["product_id"],
+    registry=registry,
+)
+
 wans = {
     "dualwan_enabled": Gauge(
         "asus_router_dualwan_enabled",
@@ -851,6 +858,8 @@ class RouterMetricsCollector:
             logger.debug(f"[{base_labels['product_id']}] Reboot schedule in {reboot_schedule.until_ms / 1000:.0f}s")
         else:
             next_reboot_seconds.labels(**base_labels).set(float("nan"))
+
+        software_update_available.labels(**base_labels).set(_b(info.software_update_available))
 
         logger.debug(f"[{base_labels['product_id']}] Router info collected successfully")
 

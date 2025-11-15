@@ -188,6 +188,7 @@ class RouterInfo:
     uptime: UptimeInfo
     reboot_schedule: Optional[RebootScheduleInfo]
     serial_no: str
+    software_update_available: bool
 
 
 class RouterFeatureCapabilities:

@@ -208,12 +208,13 @@ class RouterClient:
     def get_info(self) -> RouterInfo:
         nvrams = self.__get_nvram("productid", "lan_hwaddr", "lan_hostname", "odmpid", "hardware_version",
                                   "bl_version", "svc_ready", "qos_enable", "bwdpi_app_rulelist", "qos_type", "firmver",
-                                  "extendno", "territory_code", "re_mode", "serial_no")
+                                  "extendno", "territory_code", "re_mode", "serial_no", "webs_state_flag")
 
         sw_mode = self.get_sw_mode()
         caps = self.get_supported_features()
         uptime = self.get_uptime()
         reboot_schedule = self.get_reboot_schedule_time()
+        software_update_available = nvrams["webs_state_flag"] in ["1", "2"]
 
         return RouterInfo(
             product_id=nvrams["productid"],
@@ -234,7 +235,8 @@ class RouterClient:
             caps=caps,
             uptime=uptime,
             serial_no=nvrams["serial_no"],
-            reboot_schedule=reboot_schedule
+            reboot_schedule=reboot_schedule,
+            software_update_available=software_update_available
         )
 
     def get_netdev(self) -> NetdevInfo:
