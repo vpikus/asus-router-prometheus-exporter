@@ -5,6 +5,7 @@ import json
 import re
 from collections import Counter
 from datetime import timedelta
+from typing import Any
 
 import requests
 
@@ -215,6 +216,7 @@ class RouterClient:
         uptime = self.get_uptime()
         reboot_schedule = self.get_reboot_schedule_time()
         software_update_available = nvrams["webs_state_flag"] in ["1", "2"]
+        ports_info = self.get_port_status_infos(nvrams["lan_hwaddr"])
 
         return RouterInfo(
             product_id=nvrams["productid"],
@@ -236,7 +238,8 @@ class RouterClient:
             uptime=uptime,
             serial_no=nvrams["serial_no"],
             reboot_schedule=reboot_schedule,
-            software_update_available=software_update_available
+            software_update_available=software_update_available,
+            ports_info=ports_info
         )
 
     def get_netdev(self) -> NetdevInfo:
@@ -396,6 +399,26 @@ class RouterClient:
                 proto=LanProtoType(nvrams["lan_proto"]),
             )
         return network_wan_info
+
+    def get_port_status_infos(self, mac: str) -> list[PortInfo]:
+        response = self.session.get(f"{self.host}/get_port_status.cgi",
+                                    params={"node_mac": mac},
+                                    headers=ASUS_CLIENT_DEFAULT_HEADERS,
+                                    timeout=DEFAULT_TIMEOUT)
+        response.raise_for_status()
+
+        port_infos: list[PortInfo] = []
+        port_info_raw = response.json().get("port_info", {}).get(mac, {})
+        for port_id, data in port_info_raw.items():
+            port_info = PortInfo(
+                id=port_id,
+                plugged=to_bool(data["is_on"]),
+                capability=PortCapability(int(data["cap"])),
+                max_supported_speed_rate_mbps=int(data["max_rate"]),
+                current_speed_rate_mbps=int(data["link_rate"])
+            )
+            port_infos.append(port_info)
+        return port_infos
 
 
 class RouterClientFactory:

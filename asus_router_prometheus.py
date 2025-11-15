@@ -285,6 +285,45 @@ wireless = {
     )
 }
 
+ports = {
+    "port_plugged": Gauge(
+        "asus_router_ports_plugged",
+        "Port connection status (0/1)",
+        ["product_id", "port_id"],
+        registry=registry
+    ),
+    "port_link_rate_mbps": Gauge(
+        "asus_router_ports_link_rate_mbps",
+        "Port current link rate in Mbps",
+        ["product_id", "port_id"],
+        registry=registry
+    ),
+    "port_max_rate_mbps": Gauge(
+        "asus_router_ports_max_rate_mbps",
+        "Port maximum supported rate in Mbps",
+        ["product_id", "port_id"],
+        registry=registry
+    ),
+    "port_slow_speed": Gauge(
+        "asus_router_ports_slow_speed",
+        "Port operating at reduced speed (0/1)",
+        ["product_id", "port_id"],
+        registry=registry
+    ),
+    "port_group": Gauge(
+        "asus_router_ports_group",
+        "Port group (one-hot)",
+        ["product_id", "port_id", "port_group"],
+        registry=registry
+    ),
+    "port_info": Info(
+        "asus_router_ports_port",
+        "Port detailed information",
+        ["product_id", "port_id"],
+        registry=registry
+    ),
+}
+
 # Scrape duration and errors
 scrape_duration_seconds = Histogram(
     "asus_router_scrape_duration_seconds",
@@ -546,6 +585,7 @@ class RouterMetricsCollector:
                 self._collect_network_metrics()
                 self._collect_wan_info_metrics()
                 self._collect_wireless_metrics()
+                self._collect_port_metrics()
             except Exception as e:
                 logger.error(f"Error collecting metrics: {e}")
                 scrape_errors_total.inc()
@@ -825,6 +865,33 @@ class RouterMetricsCollector:
             extra_label_name="wl_crypto",
             get_label_value=lambda e: e.value
         )
+
+    def _collect_port_metrics(self):
+        """Collect port status and rate metrics."""
+        base_labels = self._get_base_labels()
+
+        if not self.router_info.ports_info:
+            logger.debug(f"[{base_labels['product_id']}] No port info available")
+            return
+
+        for port_info in self.router_info.ports_info:
+            port_id = port_info.id
+            port_labels = self._get_base_labels(port_id=port_id)
+
+            # Connection status
+            ports["port_plugged"].labels(**port_labels).set(_b(port_info.plugged))
+            ports["port_max_rate_mbps"].labels(**port_labels).set(port_info.max_supported_speed_rate_mbps)
+            ports["port_link_rate_mbps"].labels(**port_labels).set(port_info.current_speed_rate_mbps)
+            ports["port_slow_speed"].labels(**port_labels).set(_b(port_info.is_slow_speed))
+
+            set_onehot_enum(
+                ports["port_group"], port_labels, asus_router_client.PortGroup,
+                port_info.group, extra_label_name="port_group", get_label_value=lambda e: e.name
+            )
+
+            ports["port_info"].labels(**port_labels).info({
+                "special_port_name": port_info.special_port_name,
+            })
 
     def _collect_router_info(self):
         """Collect router static info and uptime metrics."""
