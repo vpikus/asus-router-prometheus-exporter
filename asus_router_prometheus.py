@@ -969,7 +969,10 @@ class RouterMetricsCollector:
         )
 
     def _collect_client_metrics(self):
-        base_labels = self._get_base_labels()
+        # clear metrics to prevent duplicates when client moving between AIMesh nodes or changing wireless interface
+        for metric in clients.values():
+            metric.clear()
+
         client_list = self.client.get_clients()
 
         for client in client_list:
@@ -989,7 +992,8 @@ class RouterMetricsCollector:
                 client_mac=client.mac,
                 client_conn_interface=interface.label,
                 client_amesh_pap_mac=amesh_pap_mac or "",
-                client_name=next((s for s in [client.nick_name, client.name, client.vendor] if s.strip()), None)
+                client_name=next((s for s in [client.nick_name, client.name, client.vendor, client.mac] if s.strip()),
+                                 None)
             )
 
             # Fill the info metric with ipaddr, name, nick_name, vendor
