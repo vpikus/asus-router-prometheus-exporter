@@ -393,13 +393,13 @@ clients = {
          "client_rssi_strength"],
         registry=registry,
     ),
-    "client_rx_bytes_total": Counter(
+    "client_rx_bytes_total": Gauge(
         "asus_router_client_netdev_rx_bytes_total",
         "Total received bytes per client as reported by router",
         ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
-    "client_tx_bytes_total": Counter(
+    "client_tx_bytes_total": Gauge(
         "asus_router_client_netdev_tx_bytes_total",
         "Total transmitted bytes per client as reported by router",
         ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
@@ -1115,16 +1115,14 @@ class RouterMetricsCollector:
 
         # Traffic statistics (RX/TX bytes)
         if client.traffic_stats is not None:
-            clients["client_rx_bytes_total"].labels(**client_labels).inc(client.traffic_stats.rx)
-            clients["client_tx_bytes_total"].labels(**client_labels).inc(client.traffic_stats.tx)
+            clients["client_rx_throughput_bps"].labels(**client_labels).set(client.traffic_stats.rx)
+            clients["client_tx_throughput_bps"].labels(**client_labels).set(client.traffic_stats.tx)
 
         # Throughput info (RX/TX in bps)
         if client.throughput_info is not None:
-            # Convert bytes to bits: bytes * 8
-            clients["client_rx_throughput_bps"].labels(**client_labels).set(
-                client.throughput_info.total_download_bytes * 8)
-            clients["client_tx_throughput_bps"].labels(**client_labels).set(
-                client.throughput_info.total_upload_bytes * 8)
+            throughput_info = client.throughput_info
+            clients["client_rx_bytes_total"].labels(**client_labels).set(throughput_info.total_download_bytes)
+            clients["client_tx_bytes_total"].labels(**client_labels).set(throughput_info.total_upload_bytes)
 
         # A-Mesh role (one-hot)
         if client.amesh_info and client.amesh_info.role is not None:
