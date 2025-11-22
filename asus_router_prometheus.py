@@ -327,97 +327,100 @@ clients = {
     "client_info": Info(
         "asus_router_client_info",
         "Basic client metadata",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_operation_mode": Gauge(
         "asus_router_client_operation_mode",
         "Client operation mode (one-hot)",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_op_mode"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name", "client_op_mode"],
         registry=registry,
     ),
     "client_ip_method": Gauge(
         "asus_router_client_ip_method",
         "Client IP assignment method (one-hot)",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_ip_method"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name",
+         "client_ip_method"],
         registry=registry,
     ),
     "client_interface": Gauge(
         "asus_router_client_interface",
         "Client connection interface (one-hot)",
-        ["product_id", "client_mac", "client_amesh_pap_mac", "client_conn_interface_type"],
+        ["product_id", "client_mac", "client_amesh_pap_mac", "client_name", "client_conn_interface"],
         registry=registry,
     ),
     "client_online": Gauge(
         "asus_router_client_online",
         "Client online status (1=online, 0=offline)",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_last_conn_timestamp": Gauge(
         "asus_router_client_last_conn_timestamp",
         "Last connection UNIX timestamp reported by router",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_conn_duration_seconds": Gauge(
         "asus_router_client_conn_duration_seconds",
         "Current connection duration in seconds derived from conn_ts",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_internet_mode": Gauge(
         "asus_router_client_internet_mode",
         "Client internet mode (one-hot)",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_internet_mode"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name",
+         "client_internet_mode"],
         registry=registry,
     ),
     "client_internet_state": Gauge(
         "asus_router_client_internet_state",
         "Client internet state (0/1)",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_rssi_dbm": Gauge(
         "asus_router_client_rssi_dbm",
         "Client RSSI signal strength in dBm",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_rssi_strength": Gauge(
         "asus_router_client_rssi_strength",
         "Client RSSI strength (one-hot)",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_rssi_strength"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name",
+         "client_rssi_strength"],
         registry=registry,
     ),
     "client_rx_bytes_total": Counter(
         "asus_router_client_netdev_rx_bytes_total",
         "Total received bytes per client as reported by router",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_tx_bytes_total": Counter(
         "asus_router_client_netdev_tx_bytes_total",
         "Total transmitted bytes per client as reported by router",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_rx_throughput_bps": Gauge(
         "asus_router_client_netdev_rx_throughput_bps",
         "Current receive throughput in bits per second",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_tx_throughput_bps": Gauge(
         "asus_router_client_netdev_tx_throughput_bps",
         "Current transmit throughput in bits per second",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"],
         registry=registry,
     ),
     "client_amesh_role": Gauge(
         "asus_router_client_amesh_role",
         "AI Mesh role (one-hot)",
-        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "amesh_role"],
+        ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name", "amesh_role"],
         registry=registry,
     )
 }
@@ -985,7 +988,8 @@ class RouterMetricsCollector:
             client_labels = self._get_base_labels(
                 client_mac=client.mac,
                 client_conn_interface=interface.label,
-                client_amesh_pap_mac=amesh_pap_mac or ""
+                client_amesh_pap_mac=amesh_pap_mac or "",
+                client_name=next((s for s in [client.nick_name, client.name, client.vendor] if s.strip()), None)
             )
 
             # Fill the info metric with ipaddr, name, nick_name, vendor
@@ -1047,10 +1051,14 @@ class RouterMetricsCollector:
 
         # Connection interface (one-hot)
         interface_labels = {k: v for k, v in client_labels.items() if k != "client_conn_interface"}
-        for iface in asus_router_client.ClientInterface:
-            labels = dict(interface_labels)
-            labels["client_conn_interface_type"] = iface.label
-            clients["client_interface"].labels(**labels).set(1 if iface == client.interface else 0)
+        set_onehot_enum(
+            clients["client_interface"],
+            interface_labels,
+            asus_router_client.ClientInterface,
+            client.interface,
+            extra_label_name="client_conn_interface",
+            get_label_value=lambda e: e.label
+        )
 
         # Online status (0/1)
         clients["client_online"].labels(**client_labels).set(_b(client.online))
