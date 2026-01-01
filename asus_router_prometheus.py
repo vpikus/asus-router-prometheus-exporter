@@ -19,6 +19,7 @@ from typing import Optional, Dict, Tuple, Iterable, Mapping
 from prometheus_client import CollectorRegistry, Counter, Info, Gauge, Histogram, start_http_server
 
 import asus_router_client
+from asus_router_logging import SensitiveFormatter
 
 
 @dataclass
@@ -27,11 +28,10 @@ class ThroughputSample:
     tx: int
     rx: int
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+# Configure logging with sensitive data masking
+_handler = logging.StreamHandler()
+_handler.setFormatter(SensitiveFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logging.basicConfig(level=logging.INFO, handlers=[_handler])
 logger = logging.getLogger(__name__)
 
 # Metrics Registry
