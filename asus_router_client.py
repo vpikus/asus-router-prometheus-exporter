@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from collections import Counter
 from datetime import timedelta
 
@@ -10,6 +11,8 @@ import requests
 from asus_router_client_exceptions import *
 from asus_router_models import *
 from asus_router_utils import *
+
+logger = logging.getLogger(__name__)
 
 ASUS_CLIENT_DEFAULT_HEADERS = {
     "User-Agent": "asusrouter-Android-DUTUtil-1.0.0.245"
@@ -25,6 +28,7 @@ class RouterClient:
 
     @staticmethod
     def __handle_response(response: requests.Response) -> str:
+        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, response.text[:2000])
         response.raise_for_status()
         try:
             data = response.json()
@@ -36,10 +40,11 @@ class RouterClient:
         return response.text
 
     def __get_hook(self, name: str, args: str = "") -> str:
-        response = self.session.get(f"{self.host}/appGet.cgi",
-                                    params={
-                                        "hook": f"{name}({args})"
-                                    },
+        url = f"{self.host}/appGet.cgi"
+        params = {"hook": f"{name}({args})"}
+        logger.debug("Request: GET %s | Params: %s", url, params)
+        response = self.session.get(url,
+                                    params=params,
                                     headers=ASUS_CLIENT_DEFAULT_HEADERS,
                                     timeout=DEFAULT_TIMEOUT)
         return self.__handle_response(response)
@@ -48,10 +53,11 @@ class RouterClient:
         def __nvramget(*vars_: str) -> str:
             return ";".join(f"nvram_get({v})" for v in vars_)
 
-        response = self.session.get(f"{self.host}/appGet.cgi",
-                                    params={
-                                        "hook": f"{__nvramget(*nvrams)})"
-                                    },
+        url = f"{self.host}/appGet.cgi"
+        params = {"hook": f"{__nvramget(*nvrams)})"}
+        logger.debug("Request: GET %s | Params: %s", url, params)
+        response = self.session.get(url,
+                                    params=params,
                                     headers=ASUS_CLIENT_DEFAULT_HEADERS,
                                     timeout=DEFAULT_TIMEOUT)
 
@@ -59,9 +65,12 @@ class RouterClient:
         return json.loads(text)
 
     def get_core_temp(self) -> TemperatureInfo:
-        response = self.session.get(f"{self.host}/ajax_coretmp.asp",
+        url = f"{self.host}/ajax_coretmp.asp"
+        logger.debug("Request: GET %s", url)
+        response = self.session.get(url,
                                     headers=ASUS_CLIENT_DEFAULT_HEADERS,
                                     timeout=DEFAULT_TIMEOUT)
+        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, response.text[:2000])
         response.raise_for_status()
         payload = response.text
         pattern = re.compile(r'(\w+)\s*=\s*("?[^";]+"?);')
@@ -398,10 +407,14 @@ class RouterClient:
         return network_wan_info
 
     def get_port_status_infos(self, mac: str) -> list[PortInfo]:
-        response = self.session.get(f"{self.host}/get_port_status.cgi",
-                                    params={"node_mac": mac},
+        url = f"{self.host}/get_port_status.cgi"
+        params = {"node_mac": mac}
+        logger.debug("Request: GET %s | Params: %s", url, params)
+        response = self.session.get(url,
+                                    params=params,
                                     headers=ASUS_CLIENT_DEFAULT_HEADERS,
                                     timeout=DEFAULT_TIMEOUT)
+        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, response.text[:2000])
         response.raise_for_status()
 
         port_infos: list[PortInfo] = []
@@ -540,10 +553,12 @@ class RouterClientFactory:
         }
         payload = f"login_authorization={token}"
         session = requests.Session()
-        response = session.post(f"{self.host}/login.cgi",
+        url = f"{self.host}/login.cgi"
+        logger.debug("Request: POST %s | Data: %s", url, payload)
+        response = session.post(url,
                                 headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers},
                                 data=payload,
                                 timeout=DEFAULT_TIMEOUT)
-
+        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, response.text[:2000])
         response.raise_for_status()
         return RouterClient(self.host, session)
