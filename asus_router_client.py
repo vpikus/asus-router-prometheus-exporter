@@ -3,20 +3,32 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import threading
 from collections import Counter
 from datetime import timedelta
 
 import requests
 
 from asus_router_client_exceptions import *
+from asus_router_logging import SensitiveFormatter, mask_sensitive_data
 from asus_router_models import *
 from asus_router_utils import *
 
+# Configure logger with SensitiveFormatter to ensure credentials are masked
+# even when this module is used standalone (without asus_router_prometheus.py).
+# Note: The lock below is technically redundant since Python's import machinery
+# already serializes module-level code. However, it provides explicit safety
+# against potential edge cases and documents the thread-safety intent.
 logger = logging.getLogger(__name__)
+_logger_lock = threading.Lock()
+with _logger_lock:
+    if not logger.handlers:
+        _handler = logging.StreamHandler()
+        _handler.setFormatter(SensitiveFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+        logger.addHandler(_handler)
+        logger.propagate = False  # Prevent duplicate logs if parent also has handlers
 
-ASUS_CLIENT_DEFAULT_HEADERS = {
-    "User-Agent": "asusrouter-Android-DUTUtil-1.0.0.245"
-}
+ASUS_CLIENT_DEFAULT_HEADERS = {"User-Agent": "asusrouter-Android-DUTUtil-1.0.0.245"}
 
 DEFAULT_TIMEOUT = 10
 
@@ -28,7 +40,9 @@ class RouterClient:
 
     @staticmethod
     def __handle_response(response: requests.Response) -> str:
-        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, response.text[:2000])
+        # Mask sensitive data BEFORE truncating to prevent partial field leakage
+        masked_body = mask_sensitive_data(response.text)
+        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
         response.raise_for_status()
         try:
             data = response.json()
@@ -43,10 +57,7 @@ class RouterClient:
         url = f"{self.host}/appGet.cgi"
         params = {"hook": f"{name}({args})"}
         logger.debug("Request: GET %s | Params: %s", url, params)
-        response = self.session.get(url,
-                                    params=params,
-                                    headers=ASUS_CLIENT_DEFAULT_HEADERS,
-                                    timeout=DEFAULT_TIMEOUT)
+        response = self.session.get(url, params=params, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
         return self.__handle_response(response)
 
     def __get_nvram(self, *nvrams: str):
@@ -54,12 +65,9 @@ class RouterClient:
             return ";".join(f"nvram_get({v})" for v in vars_)
 
         url = f"{self.host}/appGet.cgi"
-        params = {"hook": f"{__nvramget(*nvrams)})"}
+        params = {"hook": f"{__nvramget(*nvrams)}"}
         logger.debug("Request: GET %s | Params: %s", url, params)
-        response = self.session.get(url,
-                                    params=params,
-                                    headers=ASUS_CLIENT_DEFAULT_HEADERS,
-                                    timeout=DEFAULT_TIMEOUT)
+        response = self.session.get(url, params=params, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
 
         text = self.__handle_response(response)
         return json.loads(text)
@@ -67,18 +75,16 @@ class RouterClient:
     def get_core_temp(self) -> TemperatureInfo:
         url = f"{self.host}/ajax_coretmp.asp"
         logger.debug("Request: GET %s", url)
-        response = self.session.get(url,
-                                    headers=ASUS_CLIENT_DEFAULT_HEADERS,
-                                    timeout=DEFAULT_TIMEOUT)
-        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, response.text[:2000])
+        response = self.session.get(url, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
+        # Mask sensitive data BEFORE truncating to prevent partial field leakage
+        masked_body = mask_sensitive_data(response.text)
+        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
         response.raise_for_status()
         payload = response.text
         pattern = re.compile(r'(\w+)\s*=\s*("?[^";]+"?);')
         parsed = dict((m.group(1), m.group(2).strip('"')) for m in pattern.finditer(payload))
 
-        return TemperatureInfo(
-            cpu=float(parsed["curr_cpuTemp"])
-        )
+        return TemperatureInfo(cpu=float(parsed["curr_cpuTemp"]))
 
     def get_uptime(self) -> UptimeInfo:
         response = self.__get_hook("uptime")
@@ -93,11 +99,7 @@ class RouterClient:
         mask = int(schedule[:7], 2)
         hh = int(schedule[7:9])
         mm = int(schedule[9:11])
-        return RebootScheduleConf(
-            weekday_mask=mask,
-            hh=hh,
-            mm=mm
-        )
+        return RebootScheduleConf(weekday_mask=mask, hh=hh, mm=mm)
 
     def get_reboot_schedule_time(self) -> Optional[RebootScheduleInfo]:
         caps = self.get_supported_features()
@@ -115,11 +117,7 @@ class RouterClient:
                 candidate = reboot_schedule.set_time(day_dt)
                 if delta > 0 or candidate >= systime:
                     until_ms = max(0, int((candidate - systime).total_seconds() * 1000))
-                    return RebootScheduleInfo(
-                        next_at=candidate,
-                        until_ms=until_ms,
-                        schedule=reboot_schedule
-                    )
+                    return RebootScheduleInfo(next_at=candidate, until_ms=until_ms, schedule=reboot_schedule)
         return None
 
     def get_cpu_usage(self) -> list[CpuInfo]:
@@ -132,21 +130,14 @@ class RouterClient:
         for cid in cpu_ids:
             prefix = f"cpu{cid}"
 
-            cpu_infos.append(CpuInfo(
-                usage=int(data[f"{prefix}_usage"]),
-                total=int(data[f"{prefix}_total"])
-            ))
+            cpu_infos.append(CpuInfo(usage=int(data[f"{prefix}_usage"]), total=int(data[f"{prefix}_total"])))
 
         return cpu_infos
 
     def get_memory_usage(self) -> MemoryInfo:
         response = self.__get_hook("memory_usage")
         data = json.loads("{" + response[17:])
-        return MemoryInfo(
-            total_kb=int(data["mem_total"]),
-            used_kb=int(data["mem_used"]),
-            free_kb=int(data["mem_free"])
-        )
+        return MemoryInfo(total_kb=int(data["mem_total"]), used_kb=int(data["mem_used"]), free_kb=int(data["mem_free"]))
 
     def get_wl_nband_info(self) -> dict[WifiBand, int]:
         response = self.__get_hook("wl_nband_info")
@@ -154,10 +145,7 @@ class RouterClient:
         wl_nband_array = [int(v) for v in wl_nband_info]
         counts = Counter(wl_nband_array)
 
-        return {
-            band: counts.get(band.value, 0)
-            for band in WifiBand
-        }
+        return {band: counts.get(band.value, 0) for band in WifiBand}
 
     def get_plugged_usb_devices(self) -> list[UsbDeviceType]:
         response = self.__get_hook("show_usb_path")
@@ -169,9 +157,17 @@ class RouterClient:
 
     def get_wireless_band_info(self, wl_unit: WifiUnit, repeater: bool) -> WifiBandInfo:
         unit = f"{wl_unit.value}{'.1' if repeater else ''}"
-        nvrams = self.__get_nvram(f"wl{unit}_mbo_enable", f"wl{unit}_ssid", f"wl{unit}_nmode_x",
-                                  f"wl{unit}_auth_mode_x", f"wl{unit}_crypto", f"wl{unit}_mfp",
-                                  f"wl{unit}_wep_x", f"wl{unit}_closed", f"wl{unit}_hwaddr")
+        nvrams = self.__get_nvram(
+            f"wl{unit}_mbo_enable",
+            f"wl{unit}_ssid",
+            f"wl{unit}_nmode_x",
+            f"wl{unit}_auth_mode_x",
+            f"wl{unit}_crypto",
+            f"wl{unit}_mfp",
+            f"wl{unit}_wep_x",
+            f"wl{unit}_closed",
+            f"wl{unit}_hwaddr",
+        )
         return WifiBandInfo(
             ssid=nvrams[f"wl{unit}_ssid"],
             mac=nvrams[f"wl{unit}_hwaddr"],
@@ -181,7 +177,7 @@ class RouterClient:
             mfp=WifiMfp(int(nvrams[f"wl{unit}_mfp"])),
             wep=WifiWpsWep(int(nvrams[f"wl{unit}_wep_x"])),
             hidde_ssid=to_bool(nvrams[f"wl{unit}_closed"]),
-            mbo_enabled=to_bool(nvrams.get(f"wl{unit}_mbo_enable", "0"))
+            mbo_enabled=to_bool(nvrams.get(f"wl{unit}_mbo_enable", "0")),
         )
 
     def get_wireless_info(self) -> WifiInfo:
@@ -213,9 +209,24 @@ class RouterClient:
         return wifi_info
 
     def get_info(self) -> RouterInfo:
-        nvrams = self.__get_nvram("productid", "lan_hwaddr", "lan_hostname", "odmpid", "hardware_version",
-                                  "bl_version", "svc_ready", "qos_enable", "bwdpi_app_rulelist", "qos_type", "firmver",
-                                  "extendno", "territory_code", "re_mode", "serial_no", "webs_state_flag")
+        nvrams = self.__get_nvram(
+            "productid",
+            "lan_hwaddr",
+            "lan_hostname",
+            "odmpid",
+            "hardware_version",
+            "bl_version",
+            "svc_ready",
+            "qos_enable",
+            "bwdpi_app_rulelist",
+            "qos_type",
+            "firmver",
+            "extendno",
+            "territory_code",
+            "re_mode",
+            "serial_no",
+            "webs_state_flag",
+        )
 
         sw_mode = self.get_sw_mode()
         caps = self.get_supported_features()
@@ -245,7 +256,7 @@ class RouterClient:
             serial_no=nvrams["serial_no"],
             reboot_schedule=reboot_schedule,
             software_update_available=software_update_available,
-            ports_info=ports_info
+            ports_info=ports_info,
         )
 
     def get_netdev(self) -> NetdevInfo:
@@ -254,13 +265,11 @@ class RouterClient:
         netdev = data["netdev"]
 
         bridge = ThroughputInfo(
-            total_upload_bytes=parse_hex(netdev["BRIDGE_tx"]),
-            total_download_bytes=parse_hex(netdev["BRIDGE_rx"])
+            total_upload_bytes=parse_hex(netdev["BRIDGE_tx"]), total_download_bytes=parse_hex(netdev["BRIDGE_rx"])
         )
 
         wired = ThroughputInfo(
-            total_upload_bytes=parse_hex(netdev["WIRED_tx"]),
-            total_download_bytes=parse_hex(netdev["WIRED_rx"])
+            total_upload_bytes=parse_hex(netdev["WIRED_tx"]), total_download_bytes=parse_hex(netdev["WIRED_rx"])
         )
 
         internet_ids = ids_for("INTERNET", netdev.keys())
@@ -302,9 +311,8 @@ class RouterClient:
         elif sw_mode == 3 and (wlc_psta == 0 or wlc_psta == ""):
             # Access Point
             mode = SwMode.AP
-        elif (
-                (sw_mode == 3 and wlc_psta in (1, 3) and wlc_express == 0)
-                or (sw_mode == 2 and wlc_psta == 1 and wlc_express == 0)
+        elif (sw_mode == 3 and wlc_psta in (1, 3) and wlc_express == 0) or (
+            sw_mode == 2 and wlc_psta == 1 and wlc_express == 0
         ):
             # Media Bridge
             mode = SwMode.MB
@@ -338,17 +346,18 @@ class RouterClient:
             wan1_enable=to_bool(nvrams.get("wan1_enable", "0")),
             active_wan_unit=active_wan_unit,
             enabled=dualwan_enabled,
-            wans_mode=WanMode(nvrams["wans_mode"])
+            wans_mode=WanMode(nvrams["wans_mode"]),
         )
 
     def get_wan_connection_info(self, wan_index: int = 0) -> WanConnectionInfo:
-        nvrams = self.__get_nvram(f"wan{wan_index}_state_t", f"wan{wan_index}_sbstate_t",
-                                  f"wan{wan_index}_auxstate_t", "link_internet")
+        nvrams = self.__get_nvram(
+            f"wan{wan_index}_state_t", f"wan{wan_index}_sbstate_t", f"wan{wan_index}_auxstate_t", "link_internet"
+        )
         return WanConnectionInfo(
             state=WanState(int(nvrams[f"wan{wan_index}_state_t"])),
             substate=WanSubState(int(nvrams[f"wan{wan_index}_sbstate_t"])),
             auxstate=WanAuxState(int(nvrams[f"wan{wan_index}_auxstate_t"])),
-            link_internet=LinkInternet(int(nvrams["link_internet"]))
+            link_internet=LinkInternet(int(nvrams["link_internet"])),
         )
 
     def get_dsl_info(self) -> DslInfo:
@@ -362,13 +371,15 @@ class RouterClient:
         dual_wan_info = self.get_dual_wan_info()
         wan_connection_info = self.get_wan_connection_info(wan_index)
         status = WanStatus.CONNECTED if wan_connection_info.is_connected else WanStatus.DISCONNECTED
-        if (dual_wan_info.enabled
-                and dual_wan_info.active_wan_unit != wan_index
-                and dual_wan_info.wans_mode in [WanMode.FAIL_BACK, WanMode.FAIL_OVER]):
+        if (
+            dual_wan_info.enabled
+            and dual_wan_info.active_wan_unit != wan_index
+            and dual_wan_info.wans_mode in [WanMode.FAIL_BACK, WanMode.FAIL_OVER]
+        ):
             status = WanStatus.STANDBY
-        wan_info = WanInfo(status=status,
-                           connection_info=wan_connection_info,
-                           active=dual_wan_info.active_wan_unit == wan_index)
+        wan_info = WanInfo(
+            status=status, connection_info=wan_connection_info, active=dual_wan_info.active_wan_unit == wan_index
+        )
         caps = self.get_supported_features()
         if status == WanStatus.CONNECTED:
             nvrams = self.__get_nvram(f"wan{wan_index}_ipaddr", f"wan{wan_index}_proto")
@@ -379,8 +390,10 @@ class RouterClient:
                 wan_info.proto = WanProtoType.USB
             elif caps.is_supported("dsl") and wan_origin == DualWanOrigin.DSL:
                 dsl_info = self.get_dsl_info()
-                if (dsl_info.transmode == DslTransMode.ATM
-                        and dsl_info.proto in [WanDslProtoType.IPoA, WanDslProtoType.PPPoA]):
+                if dsl_info.transmode == DslTransMode.ATM and dsl_info.proto in [
+                    WanDslProtoType.IPoA,
+                    WanDslProtoType.PPPoA,
+                ]:
                     wan_info.proto = WanProtoType(dsl_info.proto.value)
         return wan_info
 
@@ -410,11 +423,10 @@ class RouterClient:
         url = f"{self.host}/get_port_status.cgi"
         params = {"node_mac": mac}
         logger.debug("Request: GET %s | Params: %s", url, params)
-        response = self.session.get(url,
-                                    params=params,
-                                    headers=ASUS_CLIENT_DEFAULT_HEADERS,
-                                    timeout=DEFAULT_TIMEOUT)
-        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, response.text[:2000])
+        response = self.session.get(url, params=params, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
+        # Mask sensitive data BEFORE truncating to prevent partial field leakage
+        masked_body = mask_sensitive_data(response.text)
+        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
         response.raise_for_status()
 
         port_infos: list[PortInfo] = []
@@ -425,7 +437,7 @@ class RouterClient:
                 plugged=to_bool(data["is_on"]),
                 capability=PortCapability(int(data["cap"])),
                 max_supported_speed_rate_mbps=int(data["max_rate"]),
-                current_speed_rate_mbps=int(data["link_rate"])
+                current_speed_rate_mbps=int(data["link_rate"]),
             )
             port_infos.append(port_info)
         return port_infos
@@ -459,28 +471,33 @@ class RouterClient:
             cur_rx = int_or_none(client_data["curRx"])
             client_info.conn_time = trim_to_none(client_data["wlConnectTime"])
 
-            client_info.throughput_info = ThroughputInfo(
-                total_upload_bytes=total_tx,
-                total_download_bytes=total_rx,
-            ) if total_tx and total_rx else None
+            client_info.throughput_info = (
+                ThroughputInfo(
+                    total_upload_bytes=total_tx,
+                    total_download_bytes=total_rx,
+                )
+                if total_tx and total_rx
+                else None
+            )
 
-            client_info.traffic_stats = TrafficStats(
-                rx=cur_rx,
-                tx=cur_tx,
-            ) if cur_rx and cur_tx else None
+            client_info.traffic_stats = (
+                TrafficStats(
+                    rx=cur_rx,
+                    tx=cur_tx,
+                )
+                if cur_rx and cur_tx
+                else None
+            )
 
         if caps.is_supported("amas"):
             is_re_client = bool(safe_int(client_data.get("amesh_isReClient")))
             is_re = bool(safe_int(client_data.get("amesh_isRe")))
             if is_re_client:
                 client_info.amesh_info = ClientAmeshInfo(
-                    role=ClientAmeshRole.CLIENT,
-                    pap_mac=client_data["amesh_papMac"]
+                    role=ClientAmeshRole.CLIENT, pap_mac=client_data["amesh_papMac"]
                 )
             elif is_re:
-                client_info.amesh_info = ClientAmeshInfo(
-                    role=ClientAmeshRole.REPEATER
-                )
+                client_info.amesh_info = ClientAmeshInfo(role=ClientAmeshRole.REPEATER)
 
             if client_info.amesh_info and caps.is_supported("force_roaming") and caps.is_supported("sta_ap_bind"):
                 client_info.amesh_info.bind_band = safe_int(client_data["amesh_bind_band"])
@@ -498,19 +515,15 @@ class RouterClient:
             os_type=safe_int(client_db_data["os_type"]),
             device_type=safe_int(client_db_data["type"]),
             last_conn_ts=last_conn_ts if last_conn_ts > 0 else None,
-            last_conn_interface=ClientInterface.from_code(int(client_db_data["is_wireless"]))
+            last_conn_interface=ClientInterface.from_code(int(client_db_data["is_wireless"])),
         )
 
         if caps.is_supported("amas"):
             is_re = to_bool(client_db_data["amesh_isRe"])
             if is_re:
-                client_info.amesh_info = ClientAmeshInfo(
-                    role=ClientAmeshRole.CLIENT
-                )
+                client_info.amesh_info = ClientAmeshInfo(role=ClientAmeshRole.CLIENT)
             else:
-                client_info.amesh_info = ClientAmeshInfo(
-                    role=ClientAmeshRole.REPEATER
-                )
+                client_info.amesh_info = ClientAmeshInfo(role=ClientAmeshRole.REPEATER)
 
             if caps.is_supported("force_roaming") and caps.is_supported("sta_ap_bind"):
                 client_info.amesh_info.bind_band = safe_int(client_db_data["amesh_bind_band"])
@@ -521,8 +534,9 @@ class RouterClient:
     def get_clients(self) -> list[BaseClientInfo]:
         caps = self.get_supported_features()
         get_clientlist = json.loads(self.__get_hook("get_clientlist")).get("get_clientlist")
-        get_clientlist_from_db = (
-            json.loads(self.__get_hook("get_clientlist_from_json_database")).get("get_clientlist_from_json_database"))
+        get_clientlist_from_db = json.loads(self.__get_hook("get_clientlist_from_json_database")).get(
+            "get_clientlist_from_json_database"
+        )
         clients: list[BaseClientInfo] = []
         for client_mac, client_db_data in get_clientlist_from_db.items():
             if not is_valid_mac(client_mac):
@@ -548,17 +562,18 @@ class RouterClientFactory:
 
     def auth(self, auth) -> RouterClient:
         token = base64.b64encode(auth.encode("utf-8")).decode("utf-8")
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded"
-        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
         payload = f"login_authorization={token}"
         session = requests.Session()
         url = f"{self.host}/login.cgi"
-        logger.debug("Request: POST %s | Data: %s", url, payload)
-        response = session.post(url,
-                                headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers},
-                                data=payload,
-                                timeout=DEFAULT_TIMEOUT)
-        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, response.text[:2000])
+        # Mask request payload for defense-in-depth (in case handler without SensitiveFormatter is added)
+        masked_payload = mask_sensitive_data(payload)
+        logger.debug("Request: POST %s | Data: %s", url, masked_payload)
+        response = session.post(
+            url, headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers}, data=payload, timeout=DEFAULT_TIMEOUT
+        )
+        # Mask sensitive data BEFORE truncating to prevent partial field leakage
+        masked_body = mask_sensitive_data(response.text)
+        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
         response.raise_for_status()
         return RouterClient(self.host, session)
