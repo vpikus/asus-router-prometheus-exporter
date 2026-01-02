@@ -20,7 +20,9 @@ from asus_router_exporter.core.error_handling import (
 )
 from asus_router_exporter.core.exceptions import (
     CircuitBreakerOpenError,
+    InvalidCredentialsError,
     RetryExhaustedError,
+    SessionExpiredError,
 )
 
 
@@ -108,6 +110,29 @@ class TestRetryHandler:
         mock_func = Mock(side_effect=TypeError("not retryable"))
         with pytest.raises(TypeError):
             handler.execute(mock_func)
+
+    def test_non_recoverable_auth_errors_not_retried(self):
+        """Non-recoverable auth errors should not be retried to prevent account lockout."""
+        handler = RetryHandler(RetryConfig(max_attempts=3, initial_delay=0.01))
+
+        # InvalidCredentialsError has recoverable=False, should not be retried
+        mock_func = Mock(side_effect=InvalidCredentialsError("Bad password"))
+        with pytest.raises(InvalidCredentialsError):
+            handler.execute(mock_func)
+
+        # Should only be called once - no retry attempts
+        assert mock_func.call_count == 1
+
+    def test_recoverable_auth_errors_are_retried(self):
+        """Recoverable auth errors (SessionExpiredError) should be retried."""
+        handler = RetryHandler(RetryConfig(max_attempts=3, initial_delay=0.01))
+
+        # SessionExpiredError has recoverable=True, should be retried
+        mock_func = Mock(side_effect=[SessionExpiredError(), SessionExpiredError(), "success"])
+        result = handler.execute(mock_func)
+
+        assert result == "success"
+        assert mock_func.call_count == 3
 
 
 class TestCircuitBreaker:

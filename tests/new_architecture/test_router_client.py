@@ -23,7 +23,14 @@ from asus_router_exporter.client.models import (
     WanSubState,
 )
 from asus_router_exporter.client.router_client import RouterClient, RouterClientFactory
-from asus_router_exporter.core.exceptions import AuthenticationError
+from asus_router_exporter.core.exceptions import (
+    AccountLockedError,
+    AuthenticationBlockedError,
+    AuthenticationError,
+    CaptchaRequiredError,
+    InvalidCredentialsError,
+    SessionExpiredError,
+)
 
 
 class TestRouterClientFactory:
@@ -120,7 +127,7 @@ class TestRouterClientRequestWithReauth:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                raise AuthenticationError("Session expired")
+                raise SessionExpiredError("Session expired")
             return "success"
 
         result = client._request_with_reauth(mock_func)
@@ -133,9 +140,9 @@ class TestRouterClientRequestWithReauth:
         client = RouterClient(host="http://192.168.1.1", session=session, _auth_token="")
 
         def mock_func():
-            raise AuthenticationError("Session expired")
+            raise SessionExpiredError("Session expired")
 
-        with pytest.raises(AuthenticationError):
+        with pytest.raises(SessionExpiredError):
             client._request_with_reauth(mock_func)
 
 
@@ -162,7 +169,7 @@ class TestRouterClientHandleResponse:
         mock_response.text = '{"error_status": "2"}'
         mock_response.json.return_value = {"error_status": "2"}
 
-        with pytest.raises(AuthenticationError, match="session expired"):
+        with pytest.raises(SessionExpiredError):
             client._handle_response(mock_response)
 
     def test_handle_response_non_json(self):
@@ -177,6 +184,121 @@ class TestRouterClientHandleResponse:
         # Should not raise
         result = client._handle_response(mock_response)
         assert result == "not json"
+
+
+class TestAuthenticationExceptions:
+    """Tests for authentication exception handling based on error_status values."""
+
+    def _create_auth_error_response(self, error_status: str, captcha_on: str = "0"):
+        """Create a mock response with error_status and captcha_on.
+
+        The router always returns both error_status and captcha_on in error responses,
+        so we include both fields to match real router behavior.
+        """
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        response_data = {"error_status": error_status, "captcha_on": captcha_on}
+        mock_response.text = json.dumps(response_data)
+        mock_response.json.return_value = response_data
+
+        return client, mock_response
+
+    def test_error_status_1_raises_session_expired(self):
+        """error_status 1 should raise SessionExpiredError (recoverable)."""
+        client, response = self._create_auth_error_response("1")
+        with pytest.raises(SessionExpiredError) as exc_info:
+            client._handle_response(response)
+        assert exc_info.value.recoverable is True
+
+    def test_error_status_2_raises_session_expired(self):
+        """error_status 2 should raise SessionExpiredError (recoverable)."""
+        client, response = self._create_auth_error_response("2")
+        with pytest.raises(SessionExpiredError) as exc_info:
+            client._handle_response(response)
+        assert exc_info.value.recoverable is True
+
+    def test_error_status_3_raises_invalid_credentials(self):
+        """error_status 3 should raise InvalidCredentialsError (not recoverable)."""
+        client, response = self._create_auth_error_response("3")
+        with pytest.raises(InvalidCredentialsError) as exc_info:
+            client._handle_response(response)
+        assert exc_info.value.recoverable is False
+
+    def test_error_status_7_raises_invalid_credentials(self):
+        """error_status 7 should raise InvalidCredentialsError (not recoverable)."""
+        client, response = self._create_auth_error_response("7")
+        with pytest.raises(InvalidCredentialsError) as exc_info:
+            client._handle_response(response)
+        assert exc_info.value.recoverable is False
+
+    def test_error_status_11_raises_account_locked(self):
+        """error_status 11 should raise AccountLockedError (not recoverable)."""
+        client, response = self._create_auth_error_response("11")
+        with pytest.raises(AccountLockedError) as exc_info:
+            client._handle_response(response)
+        assert exc_info.value.recoverable is False
+
+    def test_error_status_4_raises_auth_blocked(self):
+        """error_status 4 should raise AuthenticationBlockedError (not recoverable)."""
+        client, response = self._create_auth_error_response("4")
+        with pytest.raises(AuthenticationBlockedError) as exc_info:
+            client._handle_response(response)
+        assert exc_info.value.recoverable is False
+        assert exc_info.value.error_status == 4
+
+    def test_error_status_unknown_raises_auth_blocked(self):
+        """Unknown error_status (>11) should raise AuthenticationBlockedError."""
+        client, response = self._create_auth_error_response("99")
+        with pytest.raises(AuthenticationBlockedError) as exc_info:
+            client._handle_response(response)
+        assert exc_info.value.error_status == 99
+
+    def test_captcha_takes_priority_over_error_status(self):
+        """captcha_on=1 should raise CaptchaRequiredError even with error_status <= 2."""
+        client, response = self._create_auth_error_response("2", captcha_on="1")
+        with pytest.raises(CaptchaRequiredError) as exc_info:
+            client._handle_response(response)
+        assert exc_info.value.recoverable is False
+
+    def test_captcha_required_even_with_error_status_zero(self):
+        """captcha_on=1 should raise CaptchaRequiredError even when error_status=0 (no error)."""
+        client, response = self._create_auth_error_response("0", captcha_on="1")
+        with pytest.raises(CaptchaRequiredError) as exc_info:
+            client._handle_response(response)
+        assert exc_info.value.recoverable is False
+
+    def test_empty_error_status_treated_as_zero(self):
+        """Empty error_status string should be treated as 0 (no error)."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"error_status": "", "data": "value"}'
+        mock_response.json.return_value = {"error_status": "", "data": "value"}
+
+        # Should not raise - empty string treated as 0
+        result = client._handle_response(mock_response)
+        assert "data" in result
+
+    @patch("requests.Session")
+    def test_non_recoverable_error_does_not_trigger_reauth(self, mock_session_cls):
+        """Non-recoverable errors should not trigger re-authentication."""
+        old_session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=old_session, _auth_token="token")
+
+        def mock_func():
+            raise InvalidCredentialsError("Bad credentials")
+
+        # Should raise immediately without attempting re-auth
+        with pytest.raises(InvalidCredentialsError):
+            client._request_with_reauth(mock_func)
+
+        # Verify no new session was created (no re-auth attempted)
+        mock_session_cls.assert_not_called()
 
 
 class TestRouterClientGetSwMode:

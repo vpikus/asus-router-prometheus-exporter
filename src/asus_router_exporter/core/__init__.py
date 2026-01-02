@@ -15,13 +15,18 @@ from .error_handling import (
     RetryHandler,
 )
 from .exceptions import (
+    AccountLockedError,
+    AuthenticationBlockedError,
     AuthenticationError,
+    CaptchaRequiredError,
     CircuitBreakerOpenError,
     CollectorError,
     ConfigurationError,
     ExporterError,
+    InvalidCredentialsError,
     RetryExhaustedError,
     RouterConnectionError,
+    SessionExpiredError,
 )
 from .protocols import (
     ConfigProviderProtocol,
@@ -39,6 +44,11 @@ __all__ = [
     "ExporterError",
     "ConfigurationError",
     "AuthenticationError",
+    "SessionExpiredError",
+    "InvalidCredentialsError",
+    "CaptchaRequiredError",
+    "AccountLockedError",
+    "AuthenticationBlockedError",
     "RouterConnectionError",
     "CollectorError",
     "CircuitBreakerOpenError",
