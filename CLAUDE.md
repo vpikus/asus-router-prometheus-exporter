@@ -109,7 +109,7 @@ src/asus_router_exporter/
    - `InvalidCredentialsError` (error_status 3, 7): NOT recoverable, no retry
    - `CaptchaRequiredError` (captcha_on=1): NOT recoverable, requires router config change
    - `AccountLockedError` (error_status 11): NOT recoverable, requires factory reset
-   - `AuthenticationBlockedError` (error_status 4-10, 12+): NOT recoverable
+   - `AuthenticationBlockedError` (error_status 4-6, 8-10, 12+): NOT recoverable
 
    **Important**: CAPTCHA check takes priority over error_status. Non-recoverable errors
    are never retried by `RetryHandler` to prevent triggering account lockout (which

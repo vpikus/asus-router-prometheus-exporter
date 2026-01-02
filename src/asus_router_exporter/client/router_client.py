@@ -199,8 +199,9 @@ class RouterClient:
                 data = response.json()
                 if "error_status" in data:
                     self._handle_auth_error(data)
-            except json.decoder.JSONDecodeError:
-                # Success - login.cgi returns non-JSON on successful login
+            except ValueError:
+                # Success - login.cgi returns non-JSON on successful login.
+                # Catch ValueError (parent of json.JSONDecodeError and requests.JSONDecodeError)
                 pass
         except Exception:
             new_session.close()
@@ -284,14 +285,13 @@ class RouterClient:
         error_status = safe_int(data.get("error_status"))
         captcha_on = safe_int(data.get("captcha_on"))
 
-        logger.warning(
-            "Authentication error from router: error_status=%d, captcha_on=%d",
-            error_status,
-            captcha_on,
-        )
-
         # CAPTCHA check takes priority - if CAPTCHA is required, no auth attempt should be made
         if captcha_on == 1:
+            logger.warning(
+                "Authentication error from router: error_status=%d, captcha_on=%d",
+                error_status,
+                captcha_on,
+            )
             raise CaptchaRequiredError(
                 f"CAPTCHA is required (error_status={error_status}). "
                 "Please disable CAPTCHA in ASUS Router settings "
@@ -301,6 +301,13 @@ class RouterClient:
         # error_status 0 means no error - return without raising
         if error_status == 0:
             return
+
+        # Log warning only for actual errors (after ruling out error_status=0)
+        logger.warning(
+            "Authentication error from router: error_status=%d, captcha_on=%d",
+            error_status,
+            captcha_on,
+        )
 
         # Recoverable errors (error_status 1 or 2): session expired, can re-authenticate
         if error_status in (1, 2):
