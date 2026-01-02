@@ -143,22 +143,15 @@ class BaseCollector(ABC):
 
     def _clear_metric(self, metric: MetricWrapperBase) -> None:
         """
-        Clear a single metric.
+        Clear a single metric using the official thread-safe API.
 
-        Handles different metric types (Gauge, Counter, Info, etc.)
-        and metrics with labels.
+        Uses prometheus_client's clear() method which properly handles
+        locking and works with all metric types (Gauge, Counter, Info, etc.).
         """
         try:
-            # For metrics with labels, clear all label values
-            if hasattr(metric, "_metrics"):
-                metric._metrics.clear()
-            # For simple metrics without labels
-            elif hasattr(metric, "_value"):
-                # Info metrics store values as dict, others have .set() method
-                if isinstance(metric._value, dict):
-                    metric._value.clear()
-                elif hasattr(metric._value, "set"):
-                    metric._value.set(0)
+            # Use the official clear() API which is thread-safe
+            if hasattr(metric, "clear"):
+                metric.clear()
         except Exception:
             logger.warning("Failed to clear metric in collector '%s'", self.name, exc_info=True)
 

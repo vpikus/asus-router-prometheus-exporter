@@ -39,6 +39,10 @@ class RouterInfoCollector(BaseCollector):
 
     def _create_metrics(self) -> None:
         """Create router info metrics."""
+        # Info metric without product_id label is intentional. This exporter runs
+        # one instance per router (single-router architecture), so product_id is
+        # embedded in the info dict itself. Adding it as a label would be redundant
+        # and change the metric name structure unnecessarily.
         self._info = Info(
             "asus_router",
             "Router information (static details such as product ID, model, firmware)",

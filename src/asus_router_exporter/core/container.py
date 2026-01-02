@@ -33,11 +33,15 @@ class Container:
     - Metric collectors
     - Prometheus registry
 
-    Note:
-        This container is designed for single-threaded use. The lazy property
-        initialization (router_client, error_handler) is not thread-safe.
-        The exporter runs metric collection in a single thread, and Prometheus
-        client handles HTTP scrape thread-safety at its own level.
+    Threading Model:
+        The application runs with two threads:
+        1. Main thread: Runs metric collection loop (owns Container, collectors)
+        2. HTTP thread: Spawned by start_http_server() for Prometheus scrapes
+
+        This container's lazy properties (router_client, error_handler) are NOT
+        thread-safe, but this is safe because they are only accessed from the
+        main thread during collection. The Prometheus HTTP thread only reads
+        metric values, which is thread-safe at the prometheus_client level.
 
     Example:
         container = Container.from_config("config.yaml")

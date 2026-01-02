@@ -54,7 +54,8 @@ class TestExporterInit:
         # Check metrics are created
         assert exporter._up is not None
         assert exporter._scrape_duration is not None
-        assert exporter._running is False
+        # Check shutdown event is not set (i.e., running state)
+        assert not exporter._shutdown_event.is_set()
 
     def test_init_stores_container(self):
         registry = CollectorRegistry()
@@ -203,17 +204,18 @@ class TestExporterCollectMetrics:
 class TestExporterShutdown:
     """Tests for shutdown handling."""
 
-    def test_handle_shutdown_sets_running_false(self):
+    def test_handle_shutdown_sets_shutdown_event(self):
         registry = CollectorRegistry()
         config = Config.from_env()
         container = Container(config, registry)
 
         exporter = Exporter(container)
-        exporter._running = True
+        assert not exporter._shutdown_event.is_set()
 
         exporter._handle_shutdown(signal.SIGINT, None)
 
-        assert exporter._running is False
+        assert exporter._shutdown_event.is_set()
+        assert exporter._received_signal == signal.SIGINT
 
     def test_shutdown_cleans_up_container(self):
         registry = CollectorRegistry()
@@ -231,9 +233,8 @@ class TestExporterRun:
     """Tests for the run method."""
 
     @patch("asus_router_exporter.server.exporter.start_http_server")
-    @patch("asus_router_exporter.server.exporter.time.sleep")
     @patch("asus_router_exporter.server.exporter.signal.signal")
-    def test_run_starts_http_server(self, mock_signal, mock_sleep, mock_start_server):
+    def test_run_starts_http_server(self, mock_signal, mock_start_server):
         registry = CollectorRegistry()
         config = Config({"exporter": {"port": 9100, "scrape_interval": 30}})
         container = Container(config, registry)
@@ -243,20 +244,23 @@ class TestExporterRun:
         mock_client.get_info.return_value = mock_info
         container.set_router_client(mock_client)
 
-        # Make sleep raise KeyboardInterrupt to stop the loop
-        mock_sleep.side_effect = KeyboardInterrupt()
+        # Mock start_http_server to return (HTTPServer, Thread) tuple
+        mock_httpd = MagicMock()
+        mock_start_server.return_value = (mock_httpd, MagicMock())
 
         exporter = Exporter(container)
 
+        # Set shutdown event immediately to exit the loop
+        exporter._shutdown_event.set()
+
         with patch.object(container, "cleanup"):
-            exporter.run()  # KeyboardInterrupt is handled internally by run()
+            exporter.run()
 
         mock_start_server.assert_called_once_with(9100, registry=registry)
 
     @patch("asus_router_exporter.server.exporter.start_http_server")
-    @patch("asus_router_exporter.server.exporter.time.sleep")
     @patch("asus_router_exporter.server.exporter.signal.signal")
-    def test_run_registers_signal_handlers(self, mock_signal, mock_sleep, mock_start_server):
+    def test_run_registers_signal_handlers(self, mock_signal, mock_start_server):
         registry = CollectorRegistry()
         config = Config({"exporter": {"port": 8000, "scrape_interval": 30}})
         container = Container(config, registry)
@@ -266,13 +270,17 @@ class TestExporterRun:
         mock_client.get_info.return_value = mock_info
         container.set_router_client(mock_client)
 
-        # Make sleep raise KeyboardInterrupt to stop the loop
-        mock_sleep.side_effect = KeyboardInterrupt()
+        # Mock start_http_server to return (HTTPServer, Thread) tuple
+        mock_httpd = MagicMock()
+        mock_start_server.return_value = (mock_httpd, MagicMock())
 
         exporter = Exporter(container)
 
+        # Set shutdown event immediately to exit the loop
+        exporter._shutdown_event.set()
+
         with patch.object(container, "cleanup"):
-            exporter.run()  # KeyboardInterrupt is handled internally by run()
+            exporter.run()
 
         # Check SIGINT and SIGTERM handlers were registered
         signal_calls = [call[0][0] for call in mock_signal.call_args_list]
@@ -280,9 +288,8 @@ class TestExporterRun:
         assert signal.SIGTERM in signal_calls
 
     @patch("asus_router_exporter.server.exporter.start_http_server")
-    @patch("asus_router_exporter.server.exporter.time.sleep")
     @patch("asus_router_exporter.server.exporter.signal.signal")
-    def test_run_collects_router_info(self, mock_signal, mock_sleep, mock_start_server):
+    def test_run_collects_router_info(self, mock_signal, mock_start_server):
         registry = CollectorRegistry()
         config = Config({"exporter": {"port": 8000, "scrape_interval": 30}})
         container = Container(config, registry)
@@ -292,21 +299,24 @@ class TestExporterRun:
         mock_client.get_info.return_value = mock_info
         container.set_router_client(mock_client)
 
-        # Make sleep raise KeyboardInterrupt to stop the loop
-        mock_sleep.side_effect = KeyboardInterrupt()
+        # Mock start_http_server to return (HTTPServer, Thread) tuple
+        mock_httpd = MagicMock()
+        mock_start_server.return_value = (mock_httpd, MagicMock())
 
         exporter = Exporter(container)
 
+        # Set shutdown event immediately to exit the loop
+        exporter._shutdown_event.set()
+
         with patch.object(container, "cleanup"):
-            exporter.run()  # KeyboardInterrupt is handled internally by run()
+            exporter.run()
 
         # Router info should have been collected
         mock_client.get_info.assert_called_once()
 
     @patch("asus_router_exporter.server.exporter.start_http_server")
-    @patch("asus_router_exporter.server.exporter.time.sleep")
     @patch("asus_router_exporter.server.exporter.signal.signal")
-    def test_run_cleanup_on_exit(self, mock_signal, mock_sleep, mock_start_server):
+    def test_run_cleanup_on_exit(self, mock_signal, mock_start_server):
         registry = CollectorRegistry()
         config = Config({"exporter": {"port": 8000, "scrape_interval": 30}})
         container = Container(config, registry)
@@ -316,13 +326,17 @@ class TestExporterRun:
         mock_client.get_info.return_value = mock_info
         container.set_router_client(mock_client)
 
-        # Make sleep raise KeyboardInterrupt to stop the loop
-        mock_sleep.side_effect = KeyboardInterrupt()
+        # Mock start_http_server to return (HTTPServer, Thread) tuple
+        mock_httpd = MagicMock()
+        mock_start_server.return_value = (mock_httpd, MagicMock())
 
         exporter = Exporter(container)
 
+        # Set shutdown event immediately to exit the loop
+        exporter._shutdown_event.set()
+
         with patch.object(container, "cleanup") as mock_cleanup:
-            exporter.run()  # KeyboardInterrupt is handled internally by run()
+            exporter.run()
             mock_cleanup.assert_called_once()
 
 

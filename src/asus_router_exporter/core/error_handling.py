@@ -191,6 +191,12 @@ class CircuitBreaker:
         if not self.config.enabled:
             return func(*args, **kwargs)
 
+        # Note: Lock is released before function execution to avoid holding it during
+        # potentially long-running operations. This creates a TOCTOU window where multiple
+        # threads could pass the half-open check simultaneously, potentially exceeding
+        # half_open_max_calls. This is acceptable behavior for circuit breakers - the limit
+        # is a guideline, not a hard guarantee, and the alternative (holding lock during
+        # execution) would serialize all protected calls which defeats the purpose.
         with self._state.lock:
             self._check_state_transition()
 
@@ -232,11 +238,11 @@ class CircuitBreaker:
 
     def _record_success(self) -> None:
         """Record a successful execution."""
-        # Fast path: skip if circuit is already healthy (no lock needed for read-only check)
-        if self._state.state == CircuitState.CLOSED and self._state.failure_count == 0:
-            return
-
         with self._state.lock:
+            # Check inside lock to avoid data race between state and failure_count reads
+            if self._state.state == CircuitState.CLOSED and self._state.failure_count == 0:
+                return
+
             if self._state.state == CircuitState.HALF_OPEN:
                 logger.info("Circuit breaker transitioning to CLOSED after successful test")
                 self._state.state = CircuitState.CLOSED

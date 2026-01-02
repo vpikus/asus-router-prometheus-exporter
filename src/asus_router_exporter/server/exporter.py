@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import logging
 import signal
+import threading
 import time
 from dataclasses import dataclass, field
+from http.server import HTTPServer
 from typing import TYPE_CHECKING, Any
 
 from prometheus_client import Gauge, start_http_server
@@ -73,8 +75,10 @@ class Exporter:
             container: Dependency injection container
         """
         self._container = container
-        self._running = False
+        self._shutdown_event = threading.Event()
         self._router_info: Any | None = None
+        self._http_server: HTTPServer | None = None
+        self._received_signal: int | None = None
 
         # Scrape status metrics
         self._up = Gauge(
@@ -102,18 +106,27 @@ class Exporter:
         interval = config.get("exporter.scrape_interval", 30)
 
         # Setup signal handlers
+        # Note: Signal handlers must not call logging functions because Python's
+        # logging module uses locks internally. If a signal interrupts code that
+        # holds the logging lock, calling logger from the handler causes deadlock.
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)
 
-        # Start HTTP server
-        start_http_server(port, registry=self._container.registry)
+        # Start HTTP server with error handling for port-in-use
+        try:
+            httpd, _ = start_http_server(port, registry=self._container.registry)
+            self._http_server = httpd
+        except OSError as e:
+            if e.errno == 98 or "Address already in use" in str(e):  # errno 98 on Linux
+                logger.error("Port %d is already in use. Choose a different port.", port)
+                raise SystemExit(1) from e
+            raise
         logger.info("Metrics available at http://localhost:%d/metrics", port)
 
         # Collect initial router info
         self._collect_router_info()
 
         # Start collection loop
-        self._running = True
         logger.info(
             "Starting metric collection (interval: %ds, collectors: %s)",
             interval,
@@ -121,9 +134,11 @@ class Exporter:
         )
 
         try:
-            while self._running:
+            while not self._shutdown_event.is_set():
                 self._collect_with_error_handling()
-                time.sleep(interval)
+                # Use Event.wait() instead of time.sleep() to allow immediate
+                # response to shutdown signals without waiting for the full interval
+                self._shutdown_event.wait(timeout=interval)
         except KeyboardInterrupt:
             # Allow graceful exit from collection loop via Ctrl+C
             pass
@@ -166,13 +181,29 @@ class Exporter:
         self._container.collect_metrics(self._router_info)
 
     def _handle_shutdown(self, signum: int, frame: Any) -> None:
-        """Handle shutdown signal."""
-        logger.info("Received shutdown signal (%d)", signum)
-        self._running = False
+        """
+        Handle shutdown signal.
+
+        SAFETY: This handler must NOT call logging functions. Python's logging
+        uses locks internally, and if this signal handler interrupts code that
+        holds the logging lock, calling logger here would cause a deadlock.
+        Only safe operations are: setting flags/events, writing to pipes/sockets.
+        """
+        self._received_signal = signum
+        self._shutdown_event.set()
 
     def _shutdown(self) -> None:
         """Perform graceful shutdown."""
+        # Log signal info here (safe, outside signal handler)
+        if self._received_signal is not None:
+            logger.info("Received shutdown signal (%d)", self._received_signal)
         logger.info("Shutting down exporter...")
+
+        # Stop HTTP server to cleanly terminate in-flight requests
+        if self._http_server is not None:
+            self._http_server.shutdown()
+            logger.debug("HTTP server stopped")
+
         self._container.cleanup()
         logger.info("Exporter stopped")
 

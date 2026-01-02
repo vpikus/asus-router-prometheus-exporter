@@ -27,6 +27,26 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
     """
     Collector for client metrics.
 
+    Design Note on Metric Clearing:
+        This collector clears all metrics at the start of each collection cycle.
+        While this breaks Prometheus time series continuity, it's necessary because:
+
+        1. Client label values are mutable - clients can roam between AIMesh nodes
+           (changing client_amesh_pap_mac), switch interfaces (changing
+           client_conn_interface), or have their names updated (changing client_name).
+
+        2. Without clearing, the same physical device would accumulate multiple
+           metric series with different label combinations, causing data inconsistency
+           and metric explosion.
+
+        3. The LabeledMetricsMixin is inherited but not fully utilized because tracking
+           by MAC alone doesn't solve the mutable-labels problem. A client staying
+           connected but changing interfaces would still leave stale metrics.
+
+        Future improvement: Refactor to use MAC as primary identifier with mutable
+        attributes as Info metric values rather than labels. This would allow proper
+        time series continuity while avoiding stale data.
+
     Metrics:
     - asus_router_client_info (Info)
     - asus_router_client_operation_mode (one-hot)
@@ -193,8 +213,9 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
         """Collect client metrics from router."""
         product_id = getattr(router_info, "product_id", "unknown")
 
-        # Clear metrics to prevent duplicates when clients move between
-        # AIMesh nodes or change wireless interface
+        # Clear all metrics before collection to prevent stale data from clients
+        # with changed labels. See class docstring "Design Note on Metric Clearing"
+        # for detailed explanation of this design tradeoff.
         self._clear_metrics()
 
         try:

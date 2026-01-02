@@ -13,8 +13,69 @@ import requests
 
 from ..core.exceptions import AuthenticationError
 from ..utils.logging import SensitiveFormatter, mask_sensitive_data
-from ..utils.parsing import *
-from .models import *
+from ..utils.parsing import (
+    ids_for,
+    int_or_none,
+    is_valid_mac,
+    parse_hex,
+    safe_int,
+    to_bool,
+    trim_to_none,
+)
+from .models import (
+    BaseClientInfo,
+    ClientAmeshInfo,
+    ClientAmeshRole,
+    ClientInfo,
+    ClientInterface,
+    ClientInternetMode,
+    ClientInternetState,
+    ClientIpMethod,
+    ClientOperationMode,
+    CpuInfo,
+    DslInfo,
+    DslTransMode,
+    DualWanInfo,
+    DualWanOrigin,
+    LanInfo,
+    LanProtoType,
+    LanState,
+    LinkInternet,
+    MemoryInfo,
+    NetdevInfo,
+    NetworkWanInfo,
+    PortCapability,
+    PortInfo,
+    QosType,
+    RebootScheduleConf,
+    RebootScheduleInfo,
+    RouterFeatureCapabilities,
+    RouterInfo,
+    SwMode,
+    TemperatureInfo,
+    ThroughputInfo,
+    TrafficStats,
+    UptimeInfo,
+    UsbDeviceType,
+    WanAuxState,
+    WanConnectionInfo,
+    WanDslProtoType,
+    WanInfo,
+    WanMode,
+    WanProtoType,
+    WanState,
+    WanStatus,
+    WanSubState,
+    WifiAuthMode,
+    WifiBand,
+    WifiBandInfo,
+    WifiCrypto,
+    WifiInfo,
+    WifiMfp,
+    WifiMode,
+    WifiUnit,
+    WifiWpsWep,
+)
 
 # Configure logger with SensitiveFormatter to ensure credentials are masked
 # even when this module is used standalone (without asus_router_prometheus.py).
@@ -53,17 +114,23 @@ class RouterClient:
 
         # Create new session
         new_session = requests.Session()
-        masked_payload = mask_sensitive_data(payload)
-        logger.debug("Request: POST %s | Data: %s", url, masked_payload)
-        response = new_session.post(
-            url, headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers}, data=payload, timeout=DEFAULT_TIMEOUT
-        )
-        masked_body = mask_sensitive_data(response.text)
-        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
-        response.raise_for_status()
+        try:
+            masked_payload = mask_sensitive_data(payload)
+            logger.debug("Request: POST %s | Data: %s", url, masked_payload)
+            response = new_session.post(
+                url, headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers}, data=payload, timeout=DEFAULT_TIMEOUT
+            )
+            masked_body = mask_sensitive_data(response.text)
+            logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
+            response.raise_for_status()
+        except Exception:
+            new_session.close()
+            raise
 
-        # Replace old session with new one
+        # Close old session before replacing with new one to prevent resource leak
+        old_session = self.session
         self.session = new_session
+        old_session.close()
         logger.info("Re-authentication successful")
 
     def _handle_response(self, response: requests.Response) -> str:
@@ -88,6 +155,9 @@ class RouterClient:
             if "error_status" in data:
                 raise AuthenticationError("Router authentication failed (session expired)")
         except json.decoder.JSONDecodeError:
+            # Intentionally suppressed: Many router endpoints return non-JSON responses
+            # (e.g., ajax_coretmp.asp returns JavaScript). We only check for auth errors
+            # in JSON responses; non-JSON responses are processed by specific callers.
             pass
         return response.text
 
@@ -190,7 +260,10 @@ class RouterClient:
 
     def get_cpu_usage(self) -> list[CpuInfo]:
         response = self.__get_hook("cpu_usage")
-        data = json.loads("{" + response[14:])
+        # Router returns malformed JSON wrapper: {"cpu_usage":"cpu1_total":"..."}
+        # We need to skip the wrapper and extract the embedded object.
+        # Find the second quote (start of embedded data) and add "{" prefix.
+        data = self._parse_embedded_json(response, "cpu_usage")
         cpu_infos: list[CpuInfo] = []
 
         cpu_ids = ids_for("cpu", data.keys())
@@ -204,8 +277,42 @@ class RouterClient:
 
     def get_memory_usage(self) -> MemoryInfo:
         response = self.__get_hook("memory_usage")
-        data = json.loads("{" + response[17:])
+        # Router returns malformed JSON wrapper: {"memory_usage":"mem_total":"..."}
+        # We need to skip the wrapper and extract the embedded object.
+        data = self._parse_embedded_json(response, "memory_usage")
         return MemoryInfo(total_kb=int(data["mem_total"]), used_kb=int(data["mem_used"]), free_kb=int(data["mem_free"]))
+
+    @staticmethod
+    def _parse_embedded_json(response: str, wrapper_key: str) -> dict:
+        """
+        Parse embedded JSON from router's malformed wrapper format.
+
+        Router returns data like: {"wrapper_key":"actual_key":"value",...}
+        This extracts the embedded object by finding the colon after wrapper_key
+        and parsing from there with a leading brace.
+
+        Args:
+            response: Raw response text from router
+            wrapper_key: The wrapper key to skip (e.g., "cpu_usage", "memory_usage")
+
+        Returns:
+            Parsed JSON dict
+
+        Raises:
+            ValueError: If response format is invalid
+        """
+        # Find the wrapper key and the colon after it
+        key_pattern = f'"{wrapper_key}":'
+        key_pos = response.find(key_pattern)
+        if key_pos == -1:
+            raise ValueError(f"Invalid response: wrapper key '{wrapper_key}' not found")
+
+        # Skip past the wrapper key and colon to get the embedded content
+        content_start = key_pos + len(key_pattern)
+        embedded_content = response[content_start:].rstrip().rstrip("}")
+
+        # Add braces to make it valid JSON
+        return json.loads("{" + embedded_content + "}")
 
     def get_wl_nband_info(self) -> dict[WifiBand, int]:
         response = self.__get_hook("wl_nband_info")
@@ -626,6 +733,9 @@ class RouterClient:
 
 class RouterClientFactory:
     def __init__(self, host):
+        # Default to HTTP for local network router access. ASUS routers typically
+        # don't have HTTPS certificates by default. Users can explicitly specify
+        # https:// if their router is configured with SSL/TLS.
         if not host.startswith(("http://", "https://")):
             host = f"http://{host}"
 
@@ -636,15 +746,19 @@ class RouterClientFactory:
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         payload = f"login_authorization={token}"
         session = requests.Session()
-        url = f"{self.host}/login.cgi"
-        # Mask request payload for defense-in-depth (in case handler without SensitiveFormatter is added)
-        masked_payload = mask_sensitive_data(payload)
-        logger.debug("Request: POST %s | Data: %s", url, masked_payload)
-        response = session.post(
-            url, headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers}, data=payload, timeout=DEFAULT_TIMEOUT
-        )
-        # Mask sensitive data BEFORE truncating to prevent partial field leakage
-        masked_body = mask_sensitive_data(response.text)
-        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
-        response.raise_for_status()
-        return RouterClient(self.host, session, _auth_token=token)
+        try:
+            url = f"{self.host}/login.cgi"
+            # Mask request payload for defense-in-depth (in case handler without SensitiveFormatter is added)
+            masked_payload = mask_sensitive_data(payload)
+            logger.debug("Request: POST %s | Data: %s", url, masked_payload)
+            response = session.post(
+                url, headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers}, data=payload, timeout=DEFAULT_TIMEOUT
+            )
+            # Mask sensitive data BEFORE truncating to prevent partial field leakage
+            masked_body = mask_sensitive_data(response.text)
+            logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
+            response.raise_for_status()
+            return RouterClient(self.host, session, _auth_token=token)
+        except Exception:
+            session.close()
+            raise
