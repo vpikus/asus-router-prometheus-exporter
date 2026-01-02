@@ -179,6 +179,7 @@ class Container:
             return
 
         self._collectors = []
+        failed_collectors: list[str] = []
         for collector_class in self._collector_classes:
             try:
                 collector = collector_class(
@@ -189,34 +190,59 @@ class Container:
                 logger.info("Initialized collector: %s", collector.name)
             except Exception:
                 logger.exception("Failed to initialize collector %s", collector_class.name)
+                failed_collectors.append(collector_class.name)
 
         self._initialized = True
-        logger.info("Container initialized with %d collectors", len(self._collectors))
 
-    def collect_metrics(self, router_info: Any) -> None:
+        # Log summary including any failures
+        if failed_collectors:
+            logger.warning(
+                "Container initialized with %d collectors (%d failed: %s)",
+                len(self._collectors),
+                len(failed_collectors),
+                ", ".join(failed_collectors),
+            )
+        else:
+            logger.info("Container initialized with %d collectors", len(self._collectors))
+
+    def collect_metrics(self, router_info: Any) -> bool:
         """
         Collect metrics from all enabled collectors.
 
         Args:
             router_info: Router information for labels
+
+        Returns:
+            True if at least one enabled collector succeeded, False if all failed.
+            Also returns True if there are no enabled collectors (nothing failed).
         """
-        for collector in self._collectors:
-            if collector.enabled:
+        enabled_collectors = [c for c in self._collectors if c.enabled]
+        if not enabled_collectors:
+            return True  # Nothing to collect, nothing failed
+
+        success_count = 0
+        for collector in enabled_collectors:
+            try:
+                collector.collect(self.router_client, router_info)
+                success_count += 1
+            except Exception:
+                logger.exception("Collector %s failed", collector.name)
+                # Clear this collector's metrics to avoid stale data
                 try:
-                    collector.collect(self.router_client, router_info)
+                    collector.clear_metrics()
                 except Exception:
-                    logger.exception("Collector %s failed", collector.name)
-                    # Clear this collector's metrics to avoid stale data
-                    try:
-                        collector._clear_metrics()
-                    except Exception:
-                        logger.warning("Failed to clear metrics for %s", collector.name, exc_info=True)
+                    logger.warning("Failed to clear metrics for %s", collector.name, exc_info=True)
+
+        if success_count == 0:
+            logger.error("All %d enabled collectors failed", len(enabled_collectors))
+
+        return success_count > 0
 
     def clear_all_metrics(self) -> None:
         """Clear metrics from all collectors to avoid stale data."""
         for collector in self._collectors:
             try:
-                collector._clear_metrics()
+                collector.clear_metrics()
             except Exception:
                 logger.warning("Failed to clear metrics for %s", collector.name, exc_info=True)
 

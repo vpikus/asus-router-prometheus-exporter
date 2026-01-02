@@ -127,6 +127,18 @@ class NetdevCollector(BaseCollector):
             netdev_info = router_client.get_netdev()
         except Exception:
             logger.warning("[%s] Network collection failed", product_id, exc_info=True)
+            # Clear metrics but preserve state (_previous_samples, tracking sets).
+            #
+            # Design Note: We intentionally keep _previous_samples across failures because:
+            # 1. Delta calculation uses router values (current - previous), not counter values
+            # 2. Keeping previous samples allows correct delta calculation on recovery,
+            #    capturing traffic that occurred during the failure window
+            # 3. Router reboot during failure is handled by _calculate_delta returning 0
+            #    when current < previous (counter wrap detection)
+            # 4. Stale interface detection still works on recovery using the tracking sets
+            #
+            # Only the Prometheus metrics are cleared to indicate no data during failure.
+            self._clear_metrics()
             return
 
         is_first_sample = not self._previous_samples
@@ -136,6 +148,11 @@ class NetdevCollector(BaseCollector):
             self._previous_samples = self._create_network_samples(netdev_info)
             # Initialize counters with labels so they appear in metrics output
             self._initialize_counters(product_id, netdev_info)
+            # Initialize active interface tracking so stale detection works on the second scrape
+            # (if an interface disappears between first and second scrape, we need to know
+            # what interfaces existed during the first scrape)
+            self._active_internet_ids = {str(k) for k in netdev_info.internet.keys()} if netdev_info.internet else set()
+            self._active_wireless_ids = {str(k) for k in netdev_info.wireless.keys()} if netdev_info.wireless else set()
             logger.debug("[%s] Network samples initialized (first collection)", product_id)
             return
 
@@ -267,7 +284,8 @@ class NetdevCollector(BaseCollector):
         if netdev_info.internet:
             samples["internet"] = {}
             for iface_id, iface in netdev_info.internet.items():
-                samples["internet"][iface_id] = {
+                # Use str(iface_id) to match lookup in _collect_multi_interface
+                samples["internet"][str(iface_id)] = {
                     "tx": getattr(iface, "total_upload_bytes", 0),
                     "rx": getattr(iface, "total_download_bytes", 0),
                 }
@@ -275,7 +293,8 @@ class NetdevCollector(BaseCollector):
         if netdev_info.wireless:
             samples["wireless"] = {}
             for iface_id, iface in netdev_info.wireless.items():
-                samples["wireless"][iface_id] = {
+                # Use str(iface_id) to match lookup in _collect_multi_interface
+                samples["wireless"][str(iface_id)] = {
                     "tx": getattr(iface, "total_upload_bytes", 0),
                     "rx": getattr(iface, "total_download_bytes", 0),
                 }
@@ -284,10 +303,24 @@ class NetdevCollector(BaseCollector):
 
     @staticmethod
     def _calculate_delta(current: int, previous: int) -> int:
-        """Calculate delta, handling counter wraps."""
+        """
+        Calculate delta, handling counter wraps.
+
+        Design Note on Counter Wrap Handling:
+            When current < previous, the router's counter has wrapped (due to 32-bit
+            overflow or router reboot). We return 0 rather than estimating the delta
+            because:
+            1. After reboot, the router may have accumulated some traffic before we
+               read it, so using `current` as delta would be incorrect
+            2. A single lost sample is preferable to incorrect data in rate() calculations
+            3. Prometheus's rate() function handles gaps gracefully
+
+            This may cause a brief dip in rate() graphs during counter wraps, but this
+            is preferable to showing artificially inflated throughput.
+        """
         if current >= previous:
             return current - previous
-        # Counter wrapped, skip this sample
+        # Counter wrapped - see design note above
         return 0
 
     def _remove_stale_interface_metrics(
@@ -321,7 +354,18 @@ class NetdevCollector(BaseCollector):
             logger.debug("[%s] Removed stale metrics for interface %s", product_id, iface_id)
 
     def cleanup(self) -> None:
-        """Clean up collector and reset state."""
+        """
+        Clean up collector and reset state.
+
+        Design Note on Counter Continuity:
+            This method clears internal state but Prometheus Counter values are not reset
+            (counters are monotonically increasing and cannot be decremented). When
+            collection resumes after cleanup, the first collection re-initializes samples
+            and subsequent collections continue accumulating from the existing counter
+            values. This is the expected behavior for cleanup during shutdown - there will
+            be a time gap in the metrics, but no data corruption. Prometheus's rate()
+            function handles gaps gracefully.
+        """
         super().cleanup()
         self._previous_samples.clear()
         self._active_internet_ids.clear()

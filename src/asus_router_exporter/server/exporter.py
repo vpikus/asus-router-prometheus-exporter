@@ -9,6 +9,7 @@ Provides the main exporter application that:
 
 from __future__ import annotations
 
+import errno
 import logging
 import signal
 import threading
@@ -32,7 +33,14 @@ class FallbackRouterInfo:
     """
     Minimal router info used when actual router info cannot be retrieved.
 
-    Provides safe defaults for all attributes that collectors might access.
+    Provides safe defaults for commonly accessed attributes. This class
+    intentionally does NOT include all RouterInfo fields - only those
+    needed for basic operation when the router is unreachable.
+
+    IMPORTANT: Collectors MUST use `getattr(router_info, 'field', default)`
+    when accessing router_info attributes, not direct attribute access.
+    This ensures graceful handling when FallbackRouterInfo is used and
+    prevents AttributeError for fields not defined here.
     """
 
     product_id: str = "unknown"
@@ -117,7 +125,7 @@ class Exporter:
             httpd, _ = start_http_server(port, registry=self._container.registry)
             self._http_server = httpd
         except OSError as e:
-            if e.errno == 98 or "Address already in use" in str(e):  # errno 98 on Linux
+            if e.errno == errno.EADDRINUSE:
                 logger.error("Port %d is already in use. Choose a different port.", port)
                 raise SystemExit(1) from e
             raise
@@ -140,7 +148,11 @@ class Exporter:
                 # response to shutdown signals without waiting for the full interval
                 self._shutdown_event.wait(timeout=interval)
         except KeyboardInterrupt:
-            # Allow graceful exit from collection loop via Ctrl+C
+            # Safety net for KeyboardInterrupt that may occur in edge cases:
+            # - During signal handler setup (before _handle_shutdown is installed)
+            # - During certain system calls that don't respect signal handlers
+            # Normally SIGINT triggers _handle_shutdown which sets shutdown_event,
+            # causing the while loop to exit cleanly.
             pass
         finally:
             self._shutdown()
@@ -177,8 +189,14 @@ class Exporter:
             self._scrape_duration.labels(product_id=product_id).set(duration)
 
     def _collect_metrics(self) -> None:
-        """Collect metrics from all collectors."""
-        self._container.collect_metrics(self._router_info)
+        """Collect metrics from all collectors.
+
+        Raises:
+            RuntimeError: If all enabled collectors failed
+        """
+        success = self._container.collect_metrics(self._router_info)
+        if not success:
+            raise RuntimeError("All collectors failed")
 
     def _handle_shutdown(self, signum: int, frame: Any) -> None:
         """

@@ -34,6 +34,10 @@ class MockCollector:
     def _clear_metrics(self):
         self.cleared = True
 
+    def clear_metrics(self):
+        """Public interface for clearing metrics."""
+        self._clear_metrics()
+
     def cleanup(self):
         self.cleaned_up = True
 
@@ -67,6 +71,10 @@ class MockCollectorFailsOnClear(MockCollector):
 
     def _clear_metrics(self):
         raise RuntimeError("Clear failed")
+
+    def clear_metrics(self):
+        """Public interface - also fails."""
+        self._clear_metrics()
 
 
 class MockCollectorFailsOnInit(MockCollector):

@@ -103,13 +103,24 @@ class BaseCollector(ABC):
             self._collect_metrics(router_client, router_info)
             logger.debug("Collector '%s' completed successfully", self.name)
         except Exception as e:
-            logger.exception("Collector '%s' failed", self.name)
+            # Don't log here - Container.collect_metrics() logs collector failures
+            # to avoid double-logging the same exception
             raise CollectorError(self.name, str(e)) from e
 
     def cleanup(self) -> None:
         """Clean up collector resources and clear metrics."""
         self._clear_metrics()
         logger.debug("Collector '%s' cleaned up", self.name)
+
+    def clear_metrics(self) -> None:
+        """
+        Clear all metrics to prevent stale data.
+
+        This is the public interface for clearing metrics, intended to be called
+        by the Container when collection fails. Subclasses that need custom
+        cleanup behavior should override this method.
+        """
+        self._clear_metrics()
 
     @abstractmethod
     def _create_metrics(self) -> None:

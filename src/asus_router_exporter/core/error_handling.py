@@ -69,6 +69,11 @@ class RetryHandler:
         if not self.config.enabled:
             return func(*args, **kwargs)
 
+        # If retryable_exceptions is empty, no exceptions will be caught and retried.
+        # In this case, just execute directly and let any exception propagate.
+        if not self.config.retryable_exceptions:
+            return func(*args, **kwargs)
+
         last_error: Exception | None = None
         delay = self.config.initial_delay
 
@@ -326,9 +331,11 @@ class CompositeErrorHandler:
         Returns:
             Configured CompositeErrorHandler
         """
-        error_config = config.get("error_handling", {})
-        retry = error_config.get("retry", {})
-        circuit = error_config.get("circuit_breaker", {})
+        # Use `or {}` to handle case where config value is explicitly None
+        # (e.g., YAML with `error_handling: null` or `error_handling:` with no value)
+        error_config = config.get("error_handling", {}) or {}
+        retry = error_config.get("retry", {}) or {}
+        circuit = error_config.get("circuit_breaker", {}) or {}
 
         retry_config = RetryConfig(
             enabled=retry.get("enabled", True),
