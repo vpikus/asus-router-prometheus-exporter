@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from ..core.exceptions import AuthenticationError
 from ..utils.logging import SensitiveFormatter, mask_sensitive_data
@@ -96,6 +97,30 @@ ASUS_CLIENT_DEFAULT_HEADERS = {"User-Agent": "asusrouter-Android-DUTUtil-1.0.0.2
 DEFAULT_TIMEOUT = 10
 
 
+def _create_session() -> requests.Session:
+    """
+    Create a requests Session with urllib3 retries disabled.
+
+    By default, urllib3 retries failed connections multiple times before
+    raising an exception. This causes excessive log spam ("Max retries exceeded")
+    and delays when the router is unavailable. We disable these retries so that:
+
+    1. Connection failures are reported immediately
+    2. Application-level retry logic (CompositeErrorHandler with RetryHandler
+       and CircuitBreaker) handles retries appropriately
+    3. Log output is clean and actionable
+
+    Returns:
+        Configured requests.Session with no automatic retries
+    """
+    session = requests.Session()
+    # Mount adapters with max_retries=0 to disable urllib3's retry mechanism
+    adapter = HTTPAdapter(max_retries=0)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
 @dataclass
 class RouterClient:
     host: str
@@ -125,8 +150,8 @@ class RouterClient:
         payload = f"login_authorization={self._auth_token}"
         url = f"{self.host}/login.cgi"
 
-        # Create new session
-        new_session = requests.Session()
+        # Create new session with urllib3 retries disabled
+        new_session = _create_session()
         try:
             masked_payload = mask_sensitive_data(payload)
             logger.debug("Request: POST %s | Data: %s", url, masked_payload)
@@ -766,7 +791,8 @@ class RouterClientFactory:
         token = base64.b64encode(auth.encode("utf-8")).decode("utf-8")
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         payload = f"login_authorization={token}"
-        session = requests.Session()
+        # Create session with urllib3 retries disabled - app-level retry handles failures
+        session = _create_session()
         try:
             url = f"{self.host}/login.cgi"
             # Mask request payload for defense-in-depth (in case handler without SensitiveFormatter is added)
