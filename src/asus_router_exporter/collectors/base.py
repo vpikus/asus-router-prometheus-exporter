@@ -109,7 +109,7 @@ class BaseCollector(ABC):
 
     def cleanup(self) -> None:
         """Clean up collector resources and clear metrics."""
-        self._clear_metrics()
+        self.clear_metrics()
         logger.debug("Collector '%s' cleaned up", self.name)
 
     def clear_metrics(self) -> None:
