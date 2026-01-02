@@ -104,15 +104,61 @@ exporter.run()
 
 ## Configuration
 
+All configuration options can be set via environment variables, YAML config files, or CLI arguments.
+
 ### Environment Variables
+
+#### Router Connection
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ASUS_ROUTER_HOST` | Router IP address or hostname | Required |
+| `ASUS_ROUTER_HOST` | Router IP address or hostname | `192.168.1.1` |
 | `ASUS_ROUTER_AUTH` | Authentication (`username:password`) | Required |
+| `ASUS_ROUTER_TIMEOUT` | Request timeout in seconds | `10` |
+
+#### Exporter Settings
+
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `ASUS_METRICS_PORT` | Metrics HTTP port | `8000` |
-| `ASUS_SCRAPE_INTERVAL` | Collection interval (seconds) | `30` |
+| `ASUS_SCRAPE_INTERVAL` | Collection interval in seconds | `30` |
 | `ASUS_LOG_LEVEL` | Log level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
+
+#### Error Handling - Retry
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ASUS_RETRY_ENABLED` | Enable retry mechanism | `true` |
+| `ASUS_RETRY_MAX_ATTEMPTS` | Maximum retry attempts | `3` |
+| `ASUS_RETRY_BACKOFF_FACTOR` | Exponential backoff factor | `2.0` |
+| `ASUS_RETRY_MAX_DELAY` | Maximum delay between retries (seconds) | `30.0` |
+
+#### Error Handling - Circuit Breaker
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ASUS_CIRCUIT_BREAKER_ENABLED` | Enable circuit breaker | `true` |
+| `ASUS_CIRCUIT_BREAKER_FAILURE_THRESHOLD` | Failures before circuit opens | `5` |
+| `ASUS_CIRCUIT_BREAKER_RECOVERY_TIMEOUT` | Recovery timeout in seconds | `60.0` |
+| `ASUS_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS` | Max calls in half-open state | `3` |
+
+#### Collectors
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ASUS_COLLECTOR_CPU_ENABLED` | Enable CPU metrics | `true` |
+| `ASUS_COLLECTOR_MEMORY_ENABLED` | Enable memory metrics | `true` |
+| `ASUS_COLLECTOR_TEMPERATURE_ENABLED` | Enable temperature metrics | `true` |
+| `ASUS_COLLECTOR_NETWORK_ENABLED` | Enable network metrics | `true` |
+| `ASUS_COLLECTOR_WAN_ENABLED` | Enable WAN metrics | `true` |
+| `ASUS_COLLECTOR_WIRELESS_ENABLED` | Enable wireless metrics | `true` |
+| `ASUS_COLLECTOR_PORTS_ENABLED` | Enable port metrics | `true` |
+| `ASUS_COLLECTOR_CLIENTS_ENABLED` | Enable client metrics | `true` |
+| `ASUS_COLLECTOR_SYSTEM_ENABLED` | Enable system/router info metrics | `true` |
+
+#### Boolean Environment Variables
+
+Boolean values accept: `true`, `1`, `yes`, `on` (truthy) or `false`, `0`, `no`, `off` (falsy), case-insensitive.
 
 ### YAML Configuration
 

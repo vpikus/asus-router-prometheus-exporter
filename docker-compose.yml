@@ -6,6 +6,7 @@ services:
       - "8000:8000"
     environment:
       ASUS_SCRAPE_INTERVAL: 2
+      ASUS_COLLECTOR_CLIENTS_ENABLED: false
       ASUS_LOG_LEVEL: ${ASUS_LOG_LEVEL:-INFO}
       ASUS_ROUTER_HOST: ${ASUS_ROUTER_HOST:-192.168.1.1} # use your router IP
       ASUS_ROUTER_AUTH: ${ASUS_ROUTER_AUTH:-username:password} # it's an example, use your own credentials

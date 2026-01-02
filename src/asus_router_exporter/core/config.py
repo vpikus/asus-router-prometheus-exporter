@@ -29,6 +29,37 @@ class Config:
     """
     Configuration manager with environment variable substitution.
 
+    All configuration options can be set via environment variables:
+
+    Router:
+        ASUS_ROUTER_HOST: Router IP address or hostname (default: 192.168.1.1)
+        ASUS_ROUTER_AUTH: Authentication as username:password (required)
+        ASUS_ROUTER_TIMEOUT: Request timeout in seconds (default: 10)
+
+    Exporter:
+        ASUS_METRICS_PORT: Metrics HTTP port (default: 8000)
+        ASUS_SCRAPE_INTERVAL: Collection interval in seconds (default: 30)
+        ASUS_LOG_LEVEL: Log level DEBUG/INFO/WARNING/ERROR (default: INFO)
+
+    Error Handling:
+        ASUS_RETRY_ENABLED: Enable retry mechanism (default: true)
+        ASUS_RETRY_MAX_ATTEMPTS: Max retry attempts (default: 3)
+        ASUS_RETRY_BACKOFF_FACTOR: Exponential backoff factor (default: 2.0)
+        ASUS_CIRCUIT_BREAKER_ENABLED: Enable circuit breaker (default: true)
+        ASUS_CIRCUIT_BREAKER_FAILURE_THRESHOLD: Failures before open (default: 5)
+        ASUS_CIRCUIT_BREAKER_RECOVERY_TIMEOUT: Recovery timeout in seconds (default: 60.0)
+
+    Collectors (all default to true):
+        ASUS_COLLECTOR_CPU_ENABLED: Enable CPU metrics
+        ASUS_COLLECTOR_MEMORY_ENABLED: Enable memory metrics
+        ASUS_COLLECTOR_TEMPERATURE_ENABLED: Enable temperature metrics
+        ASUS_COLLECTOR_NETWORK_ENABLED: Enable network metrics
+        ASUS_COLLECTOR_WAN_ENABLED: Enable WAN metrics
+        ASUS_COLLECTOR_WIRELESS_ENABLED: Enable wireless metrics
+        ASUS_COLLECTOR_PORTS_ENABLED: Enable port metrics
+        ASUS_COLLECTOR_CLIENTS_ENABLED: Enable client metrics
+        ASUS_COLLECTOR_SYSTEM_ENABLED: Enable system/router info metrics
+
     Example:
         config = Config.load('config.yaml')
         port = config.get('exporter.port', 8000)
@@ -159,48 +190,113 @@ class Config:
         return bool(self.get(f"collectors.{collector_name}.enabled", True))
 
     @staticmethod
-    def _default_config() -> dict[str, Any]:
+    def _env_bool(name: str, default: bool) -> bool:
+        """
+        Get boolean value from environment variable.
+
+        Truthy values: 'true', '1', 'yes', 'on' (case-insensitive)
+        Falsy values: 'false', '0', 'no', 'off' (case-insensitive)
+
+        Args:
+            name: Environment variable name
+            default: Default value if not set
+
+        Returns:
+            Boolean value
+        """
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.lower() in ('true', '1', 'yes', 'on')
+
+    @staticmethod
+    def _env_int(name: str, default: int) -> int:
+        """Get integer value from environment variable."""
+        value = os.getenv(name)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            return default
+
+    @staticmethod
+    def _env_float(name: str, default: float) -> float:
+        """Get float value from environment variable."""
+        value = os.getenv(name)
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except ValueError:
+            return default
+
+    @classmethod
+    def _default_config(cls) -> dict[str, Any]:
         """Get default configuration with environment variable fallbacks."""
         return {
             "router": {
                 "host": os.getenv("ASUS_ROUTER_HOST", "192.168.1.1"),
                 "auth": os.getenv("ASUS_ROUTER_AUTH", ""),
-                "timeout": int(os.getenv("ASUS_ROUTER_TIMEOUT", "10")),
+                "timeout": cls._env_int("ASUS_ROUTER_TIMEOUT", 10),
             },
             "exporter": {
-                "port": int(os.getenv("ASUS_METRICS_PORT", "8000")),
-                "scrape_interval": int(os.getenv("ASUS_SCRAPE_INTERVAL", "30")),
+                "port": cls._env_int("ASUS_METRICS_PORT", 8000),
+                "scrape_interval": cls._env_int("ASUS_SCRAPE_INTERVAL", 30),
                 "log_level": os.getenv("ASUS_LOG_LEVEL", "INFO"),
             },
             "error_handling": {
                 "retry": {
-                    "enabled": True,
-                    "max_attempts": 3,
-                    "backoff_factor": 2.0,
-                    "max_delay": 30.0,
+                    "enabled": cls._env_bool("ASUS_RETRY_ENABLED", True),
+                    "max_attempts": cls._env_int("ASUS_RETRY_MAX_ATTEMPTS", 3),
+                    "backoff_factor": cls._env_float("ASUS_RETRY_BACKOFF_FACTOR", 2.0),
+                    "max_delay": cls._env_float("ASUS_RETRY_MAX_DELAY", 30.0),
                 },
                 "circuit_breaker": {
-                    "enabled": True,
-                    "failure_threshold": 5,
-                    "recovery_timeout": 60.0,
-                    "half_open_max_calls": 3,
+                    "enabled": cls._env_bool("ASUS_CIRCUIT_BREAKER_ENABLED", True),
+                    "failure_threshold": cls._env_int("ASUS_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 5),
+                    "recovery_timeout": cls._env_float("ASUS_CIRCUIT_BREAKER_RECOVERY_TIMEOUT", 60.0),
+                    "half_open_max_calls": cls._env_int("ASUS_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS", 3),
                 },
             },
             "collectors": {
-                "cpu": {"enabled": True, "track_per_core": True},
-                "memory": {"enabled": True},
-                "temperature": {"enabled": True},
-                "network": {"enabled": True},
-                "wan": {"enabled": True},
-                "wireless": {"enabled": True},
-                "ports": {"enabled": True},
-                "clients": {"enabled": True, "max_clients": 100},
-                "system": {"enabled": True},
+                "cpu": {
+                    "enabled": cls._env_bool("ASUS_COLLECTOR_CPU_ENABLED", True),
+                    "track_per_core": cls._env_bool("ASUS_COLLECTOR_CPU_TRACK_PER_CORE", True),
+                },
+                "memory": {
+                    "enabled": cls._env_bool("ASUS_COLLECTOR_MEMORY_ENABLED", True),
+                },
+                "temperature": {
+                    "enabled": cls._env_bool("ASUS_COLLECTOR_TEMPERATURE_ENABLED", True),
+                },
+                "network": {
+                    "enabled": cls._env_bool("ASUS_COLLECTOR_NETWORK_ENABLED", True),
+                },
+                "wan": {
+                    "enabled": cls._env_bool("ASUS_COLLECTOR_WAN_ENABLED", True),
+                },
+                "wireless": {
+                    "enabled": cls._env_bool("ASUS_COLLECTOR_WIRELESS_ENABLED", True),
+                },
+                "ports": {
+                    "enabled": cls._env_bool("ASUS_COLLECTOR_PORTS_ENABLED", True),
+                },
+                "clients": {
+                    "enabled": cls._env_bool("ASUS_COLLECTOR_CLIENTS_ENABLED", True),
+                    "max_clients": cls._env_int("ASUS_COLLECTOR_CLIENTS_MAX", 100),
+                },
+                "system": {
+                    "enabled": cls._env_bool("ASUS_COLLECTOR_SYSTEM_ENABLED", True),
+                },
             },
             "logging": {
                 "level": os.getenv("ASUS_LOG_LEVEL", "INFO"),
-                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                "mask_sensitive": True,
+                "format": os.getenv(
+                    "ASUS_LOG_FORMAT",
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                ),
+                "mask_sensitive": cls._env_bool("ASUS_LOG_MASK_SENSITIVE", True),
             },
         }
 

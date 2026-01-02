@@ -220,3 +220,105 @@ class TestConfigToDict:
         repr_str = repr(config)
         assert 'router' in repr_str
         assert 'exporter' in repr_str
+
+
+class TestConfigEnvHelpers:
+    """Tests for environment variable helper methods."""
+
+    def test_env_bool_true_values(self):
+        for value in ['true', 'TRUE', 'True', '1', 'yes', 'YES', 'on', 'ON']:
+            with patch.dict(os.environ, {'TEST_BOOL': value}):
+                assert Config._env_bool('TEST_BOOL', False) is True
+
+    def test_env_bool_false_values(self):
+        for value in ['false', 'FALSE', 'False', '0', 'no', 'NO', 'off', 'OFF']:
+            with patch.dict(os.environ, {'TEST_BOOL': value}):
+                assert Config._env_bool('TEST_BOOL', True) is False
+
+    def test_env_bool_default_when_not_set(self):
+        os.environ.pop('NONEXISTENT_BOOL', None)
+        assert Config._env_bool('NONEXISTENT_BOOL', True) is True
+        assert Config._env_bool('NONEXISTENT_BOOL', False) is False
+
+    def test_env_int_valid(self):
+        with patch.dict(os.environ, {'TEST_INT': '42'}):
+            assert Config._env_int('TEST_INT', 0) == 42
+
+    def test_env_int_invalid_returns_default(self):
+        with patch.dict(os.environ, {'TEST_INT': 'not_a_number'}):
+            assert Config._env_int('TEST_INT', 99) == 99
+
+    def test_env_int_default_when_not_set(self):
+        os.environ.pop('NONEXISTENT_INT', None)
+        assert Config._env_int('NONEXISTENT_INT', 123) == 123
+
+    def test_env_float_valid(self):
+        with patch.dict(os.environ, {'TEST_FLOAT': '3.14'}):
+            assert Config._env_float('TEST_FLOAT', 0.0) == 3.14
+
+    def test_env_float_invalid_returns_default(self):
+        with patch.dict(os.environ, {'TEST_FLOAT': 'not_a_float'}):
+            assert Config._env_float('TEST_FLOAT', 2.5) == 2.5
+
+    def test_env_float_default_when_not_set(self):
+        os.environ.pop('NONEXISTENT_FLOAT', None)
+        assert Config._env_float('NONEXISTENT_FLOAT', 1.5) == 1.5
+
+
+class TestConfigEnvOverrides:
+    """Tests for configuration via environment variables."""
+
+    def test_router_config_from_env(self):
+        with patch.dict(os.environ, {
+            'ASUS_ROUTER_HOST': '10.0.0.1',
+            'ASUS_ROUTER_AUTH': 'admin:secret',
+            'ASUS_ROUTER_TIMEOUT': '30',
+        }):
+            config = Config.from_env()
+            assert config.get('router.host') == '10.0.0.1'
+            assert config.get('router.auth') == 'admin:secret'
+            assert config.get('router.timeout') == 30
+
+    def test_exporter_config_from_env(self):
+        with patch.dict(os.environ, {
+            'ASUS_METRICS_PORT': '9090',
+            'ASUS_SCRAPE_INTERVAL': '60',
+            'ASUS_LOG_LEVEL': 'DEBUG',
+        }):
+            config = Config.from_env()
+            assert config.get('exporter.port') == 9090
+            assert config.get('exporter.scrape_interval') == 60
+            assert config.get('exporter.log_level') == 'DEBUG'
+
+    def test_retry_config_from_env(self):
+        with patch.dict(os.environ, {
+            'ASUS_RETRY_ENABLED': 'false',
+            'ASUS_RETRY_MAX_ATTEMPTS': '5',
+            'ASUS_RETRY_BACKOFF_FACTOR': '3.0',
+        }):
+            config = Config.from_env()
+            assert config.get('error_handling.retry.enabled') is False
+            assert config.get('error_handling.retry.max_attempts') == 5
+            assert config.get('error_handling.retry.backoff_factor') == 3.0
+
+    def test_circuit_breaker_config_from_env(self):
+        with patch.dict(os.environ, {
+            'ASUS_CIRCUIT_BREAKER_ENABLED': 'false',
+            'ASUS_CIRCUIT_BREAKER_FAILURE_THRESHOLD': '10',
+            'ASUS_CIRCUIT_BREAKER_RECOVERY_TIMEOUT': '120.0',
+        }):
+            config = Config.from_env()
+            assert config.get('error_handling.circuit_breaker.enabled') is False
+            assert config.get('error_handling.circuit_breaker.failure_threshold') == 10
+            assert config.get('error_handling.circuit_breaker.recovery_timeout') == 120.0
+
+    def test_collector_enabled_from_env(self):
+        with patch.dict(os.environ, {
+            'ASUS_COLLECTOR_CPU_ENABLED': 'false',
+            'ASUS_COLLECTOR_MEMORY_ENABLED': 'true',
+            'ASUS_COLLECTOR_CLIENTS_ENABLED': '0',
+        }):
+            config = Config.from_env()
+            assert config.is_collector_enabled('cpu') is False
+            assert config.is_collector_enabled('memory') is True
+            assert config.is_collector_enabled('clients') is False
