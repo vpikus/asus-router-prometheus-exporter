@@ -159,9 +159,7 @@ class PortsCollector(BaseCollector):
             value = 1 if group == current_group else 0
             self._port_group.labels(product_id=product_id, port_id=port_id, port_group=group.name).set(value)
 
-    def _remove_stale_port_metrics(
-        self, product_id: str, previous_ids: set[str], current_ids: set[str]
-    ) -> None:
+    def _remove_stale_port_metrics(self, product_id: str, previous_ids: set[str], current_ids: set[str]) -> None:
         """Remove metrics for ports that are no longer present.
 
         When ports disappear (e.g., USB port unplugged, configuration changes),

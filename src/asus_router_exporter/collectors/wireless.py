@@ -199,9 +199,7 @@ class WirelessCollector(BaseCollector):
         else:
             gauge.labels(product_id=product_id, wl_unit=wl_unit, **{label_name: str(current_value)}).set(1)
 
-    def _remove_stale_band_metrics(
-        self, product_id: str, previous_bands: set[str], current_bands: set[str]
-    ) -> None:
+    def _remove_stale_band_metrics(self, product_id: str, previous_bands: set[str], current_bands: set[str]) -> None:
         """Remove metrics for wireless bands that are no longer available.
 
         When wireless bands become unavailable (e.g., radio disabled, configuration
