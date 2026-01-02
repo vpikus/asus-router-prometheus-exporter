@@ -3,14 +3,15 @@ Tests for the Container dependency injection module.
 """
 
 import sys
+
 sys.path.insert(0, 'src')
 
-import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
+
 from prometheus_client import CollectorRegistry
 
-from asus_router_exporter.core.container import Container
 from asus_router_exporter.core.config import Config
+from asus_router_exporter.core.container import Container
 from asus_router_exporter.core.protocols import RouterClientProtocol
 
 

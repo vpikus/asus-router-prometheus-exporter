@@ -5,27 +5,28 @@ Tests for: MemoryCollector, NetdevCollector, WANCollector, WirelessCollector,
 PortsCollector, RouterInfoCollector, ClientsCollector
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
-from dataclasses import dataclass
-
 import sys
+from unittest.mock import Mock
+
 sys.path.insert(0, 'src')
 
 from prometheus_client import CollectorRegistry
 
+from asus_router_exporter.client.models import (
+    ClientAmeshRole,
+    WanAuxState,
+    WanMode,
+    WanState,
+    WanStatus,
+    WanSubState,
+)
+from asus_router_exporter.collectors.clients import ClientsCollector
 from asus_router_exporter.collectors.memory import MemoryCollector
 from asus_router_exporter.collectors.netdev import NetdevCollector
-from asus_router_exporter.collectors.wan import WANCollector
-from asus_router_exporter.collectors.wireless import WirelessCollector
 from asus_router_exporter.collectors.ports import PortsCollector
 from asus_router_exporter.collectors.router_info import RouterInfoCollector
-from asus_router_exporter.collectors.clients import ClientsCollector
-from asus_router_exporter.client.models import (
-    WanMode, WanState, WanSubState, WanAuxState, WanStatus,
-    ClientInterface, ClientOperationMode, ClientIpMethod, ClientInternetMode,
-    RssiStrength, ClientAmeshRole,
-)
+from asus_router_exporter.collectors.wan import WANCollector
+from asus_router_exporter.collectors.wireless import WirelessCollector
 
 
 class MockConfig:
@@ -121,7 +122,8 @@ class TestMemoryCollector:
         assert MemoryCollector._kb_to_bytes(0) == 0
 
     def test_set_gauge_safe(self):
-        collector = MemoryCollector(self.registry, self.config)
+        # Create collector to ensure metrics are registered (though we test static method)
+        MemoryCollector(self.registry, self.config)
 
         gauge = Mock()
         MemoryCollector._set_gauge_safe(gauge, 100.0)

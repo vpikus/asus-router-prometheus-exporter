@@ -3,23 +3,26 @@ Tests for the RouterClient module.
 """
 
 import sys
+
 sys.path.insert(0, 'src')
 
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
-from datetime import datetime, timezone, timedelta
 
-import requests
-
-from asus_router_exporter.client.router_client import RouterClient, RouterClientFactory
 from asus_router_exporter.client.models import (
-    SwMode, WifiBand, WifiUnit, WifiMode, WifiAuthMode, WifiCrypto, WifiMfp, WifiWpsWep,
-    WanMode, WanState, WanSubState, WanAuxState, LinkInternet, WanStatus, WanProtoType,
-    DualWanOrigin, DslTransMode, WanDslProtoType, LanState, LanProtoType,
-    ClientInterface, ClientOperationMode, ClientIpMethod, ClientInternetMode,
-    ClientInternetState, ClientAmeshRole, PortCapability,
+    ClientAmeshRole,
+    DslTransMode,
+    LinkInternet,
+    SwMode,
+    WanAuxState,
+    WanDslProtoType,
+    WanMode,
+    WanState,
+    WanSubState,
 )
+from asus_router_exporter.client.router_client import RouterClient, RouterClientFactory
 from asus_router_exporter.core.exceptions import AuthenticationError
 
 

@@ -2,20 +2,21 @@
 Tests for the error handling module.
 """
 
+import sys
 import time
-import pytest
 from unittest.mock import Mock, patch
 
-import sys
+import pytest
+
 sys.path.insert(0, 'src')
 
 from asus_router_exporter.core.error_handling import (
+    CircuitBreaker,
+    CircuitBreakerConfig,
+    CircuitState,
+    CompositeErrorHandler,
     RetryConfig,
     RetryHandler,
-    CircuitState,
-    CircuitBreakerConfig,
-    CircuitBreaker,
-    CompositeErrorHandler,
 )
 from asus_router_exporter.core.exceptions import (
     CircuitBreakerOpenError,

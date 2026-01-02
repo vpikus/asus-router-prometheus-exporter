@@ -3,15 +3,15 @@ Tests for the configuration management module.
 """
 
 import os
-import pytest
+import sys
 import tempfile
 from unittest.mock import patch
 
-import sys
+import pytest
+
 sys.path.insert(0, 'src')
 
 from asus_router_exporter.core.config import Config
-from asus_router_exporter.core.exceptions import ConfigurationError
 
 
 class TestConfigDefaults:

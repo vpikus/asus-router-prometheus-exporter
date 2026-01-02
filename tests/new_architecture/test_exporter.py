@@ -3,16 +3,17 @@ Tests for the Exporter module.
 """
 
 import sys
+
 sys.path.insert(0, 'src')
 
 import signal
-import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
+
 from prometheus_client import CollectorRegistry
 
-from asus_router_exporter.server.exporter import Exporter, FallbackRouterInfo, create_exporter
-from asus_router_exporter.core.container import Container
 from asus_router_exporter.core.config import Config
+from asus_router_exporter.core.container import Container
+from asus_router_exporter.server.exporter import Exporter, FallbackRouterInfo, create_exporter
 
 
 class TestFallbackRouterInfo:
@@ -378,7 +379,8 @@ class TestCreateExporter:
         mock_container.registry = CollectorRegistry()
         mock_container_cls.from_env.return_value = mock_container
 
-        exporter = create_exporter(
+        # The exporter is created to verify the function runs and applies overrides
+        create_exporter(
             router_host="10.0.0.1",
             router_auth="admin:pass",
             metrics_port=9100

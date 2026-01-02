@@ -2,10 +2,11 @@
 Tests for the collector modules.
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock
-
 import sys
+from unittest.mock import Mock
+
+import pytest
+
 sys.path.insert(0, 'src')
 
 from prometheus_client import CollectorRegistry

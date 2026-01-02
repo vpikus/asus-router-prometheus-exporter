@@ -3,15 +3,15 @@ Tests for the CLI module.
 """
 
 import sys
+
 sys.path.insert(0, 'src')
 
 import argparse
 import logging
 import os
-import pytest
 from unittest.mock import MagicMock, patch
 
-from asus_router_exporter.cli import setup_logging, parse_args, validate_args, main
+from asus_router_exporter.cli import main, parse_args, setup_logging, validate_args
 
 
 class TestSetupLogging:

@@ -106,7 +106,10 @@ jobs:
       - name: Build Docker image
         run: docker build -t asus-router-exporter:${{ github.sha }} .
 
-      # Note: Using version tag instead of SHA for better readability and Dependabot support
+      # Security note: Using version tag instead of commit SHA for better readability
+      # and Dependabot support. This is a deliberate tradeoff - while SHA pinning provides
+      # stronger supply chain security (tags can be moved), version tags enable automatic
+      # security updates via Dependabot and are more maintainable.
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.33.1
         with:
