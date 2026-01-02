@@ -88,7 +88,7 @@ class RetryHandler:
                     time.sleep(delay)
                     delay = min(delay * self.config.backoff_factor, self.config.max_delay)
                 else:
-                    logger.error("All %d attempts failed. Last error: %s", self.config.max_attempts, str(e))
+                    logger.exception("All %d attempts failed", self.config.max_attempts)
 
         # last_error should never be None here since we only reach this point
         # after catching at least one exception, but assert for type safety

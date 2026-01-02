@@ -199,8 +199,8 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
 
         try:
             client_list = router_client.get_clients()
-        except Exception as e:
-            logger.warning("[%s] Client collection failed: %s", product_id, e)
+        except Exception:
+            logger.warning("[%s] Client collection failed", product_id, exc_info=True)
             return
 
         for client in client_list:

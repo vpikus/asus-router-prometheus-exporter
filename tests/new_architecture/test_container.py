@@ -70,13 +70,19 @@ class MockCollectorFailsOnClear(MockCollector):
 
 
 class MockCollectorFailsOnInit(MockCollector):
-    """Mock collector that fails on initialization."""
+    """
+    Mock collector that fails on initialization.
+
+    Note: This class intentionally does NOT call super().__init__().
+    The purpose is to test error handling when a collector fails
+    immediately during construction, before any parent initialization
+    completes. This simulates real-world scenarios where a collector
+    might fail due to missing dependencies or invalid configuration.
+    """
 
     name = "mock_collector_fails_init"
 
-    def __init__(self, registry=None, config=None):
-        # Intentionally not calling super().__init__() - this mock tests
-        # error handling when collector initialization fails immediately
+    def __init__(self, registry=None, config=None):  # noqa: B027
         raise RuntimeError("Initialization failed")
 
 

@@ -137,8 +137,8 @@ class Exporter:
             self._router_info = client.get_info()
             product_id = getattr(self._router_info, "product_id", "unknown")
             logger.info("Connected to router: %s", product_id)
-        except Exception as e:
-            logger.error("Failed to get router info: %s", e)
+        except Exception:
+            logger.exception("Failed to get router info")
             # Create minimal router info for labels with safe defaults
             self._router_info = FallbackRouterInfo()
 
@@ -152,8 +152,8 @@ class Exporter:
             error_handler.execute(self._collect_metrics)
             # Success
             self._up.labels(product_id=product_id).set(1)
-        except Exception as e:
-            logger.error("Metric collection failed: %s", e)
+        except Exception:
+            logger.exception("Metric collection failed")
             # Failure - set up=0 and clear all collector metrics
             self._up.labels(product_id=product_id).set(0)
             self._container.clear_all_metrics()

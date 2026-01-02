@@ -102,8 +102,8 @@ class WirelessCollector(BaseCollector):
 
         try:
             wireless_info = router_client.get_wireless_info()
-        except Exception as e:
-            logger.warning("[%s] Wireless collection failed: %s", product_id, e)
+        except Exception:
+            logger.warning("[%s] Wireless collection failed", product_id, exc_info=True)
             return
 
         # WPS enabled

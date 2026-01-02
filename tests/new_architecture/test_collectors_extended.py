@@ -591,6 +591,30 @@ class TestRouterInfoCollector:
 
         collector.collect(router_client, router_info)
 
+    def test_router_info_cleanup_clears_info_metric(self):
+        """Test that cleanup properly handles Info metrics (which store values as dict)."""
+        collector = RouterInfoCollector(self.registry, self.config)
+
+        router_client = Mock()
+        router_info = Mock(
+            product_id="RT-AX88U",
+            firmver="3.0.0.4",
+            extendno="386_51234",
+            serial_no="ABC123",
+            lan_hostname="router",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
+            sw_mode=None,
+            uptime=None,
+            reboot_schedule=None,
+            software_update_available=False,
+        )
+
+        # Collect some metrics first
+        collector.collect(router_client, router_info)
+
+        # Cleanup should not raise an error (previously failed with "'dict' object has no attribute 'set'")
+        collector.cleanup()
+
 
 # ============================================================================
 # Clients Collector Tests

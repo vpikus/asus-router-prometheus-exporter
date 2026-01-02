@@ -122,8 +122,8 @@ class NetdevCollector(BaseCollector):
 
         try:
             netdev_info = router_client.get_netdev()
-        except Exception as e:
-            logger.warning("[%s] Network collection failed: %s", product_id, e)
+        except Exception:
+            logger.warning("[%s] Network collection failed", product_id, exc_info=True)
             return
 
         is_first_sample = not self._previous_samples

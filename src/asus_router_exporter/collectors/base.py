@@ -103,7 +103,7 @@ class BaseCollector(ABC):
             self._collect_metrics(router_client, router_info)
             logger.debug("Collector '%s' completed successfully", self.name)
         except Exception as e:
-            logger.error("Collector '%s' failed: %s", self.name, str(e))
+            logger.exception("Collector '%s' failed", self.name)
             raise CollectorError(self.name, str(e)) from e
 
     def cleanup(self) -> None:
@@ -145,7 +145,7 @@ class BaseCollector(ABC):
         """
         Clear a single metric.
 
-        Handles different metric types (Gauge, Counter, etc.)
+        Handles different metric types (Gauge, Counter, Info, etc.)
         and metrics with labels.
         """
         try:
@@ -154,9 +154,13 @@ class BaseCollector(ABC):
                 metric._metrics.clear()
             # For simple metrics without labels
             elif hasattr(metric, "_value"):
-                metric._value.set(0)
-        except Exception as e:
-            logger.warning("Failed to clear metric in collector '%s': %s", self.name, str(e))
+                # Info metrics store values as dict, others have .set() method
+                if isinstance(metric._value, dict):
+                    metric._value.clear()
+                elif hasattr(metric._value, "set"):
+                    metric._value.set(0)
+        except Exception:
+            logger.warning("Failed to clear metric in collector '%s'", self.name, exc_info=True)
 
     def _register_metric(self, metric: MetricWrapperBase) -> MetricWrapperBase:
         """

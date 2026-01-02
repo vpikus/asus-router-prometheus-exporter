@@ -98,15 +98,15 @@ class CPUCollector(BaseCollector):
             if temp_info and hasattr(temp_info, "cpu"):
                 self._temperature.labels(product_id=product_id).set(temp_info.cpu)
                 logger.debug("[%s] CPU temperature: %.1f°C", product_id, temp_info.cpu)
-        except Exception as e:
-            logger.warning("[%s] CPU temperature collection failed: %s", product_id, e)
+        except Exception:
+            logger.warning("[%s] CPU temperature collection failed", product_id, exc_info=True)
 
     def _collect_usage(self, router_client: RouterClientProtocol, product_id: str) -> None:
         """Collect CPU usage metrics."""
         try:
             cpu_infos = router_client.get_cpu_usage()
-        except Exception as e:
-            logger.warning("[%s] CPU usage collection failed: %s", product_id, e)
+        except Exception:
+            logger.warning("[%s] CPU usage collection failed", product_id, exc_info=True)
             return
 
         for i, cpu_info in enumerate(cpu_infos):

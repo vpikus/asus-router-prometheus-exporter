@@ -121,8 +121,8 @@ class WANCollector(BaseCollector):
 
         try:
             wan_info = router_client.get_network_wan_info()
-        except Exception as e:
-            logger.warning("[%s] WAN collection failed: %s", product_id, e)
+        except Exception:
+            logger.warning("[%s] WAN collection failed", product_id, exc_info=True)
             return
 
         # Dual WAN settings (accessed through dual_wan_info)

@@ -74,8 +74,8 @@ class MemoryCollector(BaseCollector):
 
         try:
             mem = router_client.get_memory_usage()
-        except Exception as e:
-            logger.warning("[%s] Memory collection failed: %s", product_id, e)
+        except Exception:
+            logger.warning("[%s] Memory collection failed", product_id, exc_info=True)
             self._set_gauge_nan(product_id)
             return
 

@@ -183,8 +183,8 @@ class Container:
                 )
                 self._collectors.append(collector)
                 logger.info("Initialized collector: %s", collector.name)
-            except Exception as e:
-                logger.error("Failed to initialize collector %s: %s", collector_class.name, e)
+            except Exception:
+                logger.exception("Failed to initialize collector %s", collector_class.name)
 
         self._initialized = True
         logger.info("Container initialized with %d collectors", len(self._collectors))
@@ -200,29 +200,29 @@ class Container:
             if collector.enabled:
                 try:
                     collector.collect(self.router_client, router_info)
-                except Exception as e:
-                    logger.error("Collector %s failed: %s", collector.name, e)
+                except Exception:
+                    logger.exception("Collector %s failed", collector.name)
                     # Clear this collector's metrics to avoid stale data
                     try:
                         collector._clear_metrics()
-                    except Exception as clear_err:
-                        logger.warning("Failed to clear metrics for %s: %s", collector.name, clear_err)
+                    except Exception:
+                        logger.warning("Failed to clear metrics for %s", collector.name, exc_info=True)
 
     def clear_all_metrics(self) -> None:
         """Clear metrics from all collectors to avoid stale data."""
         for collector in self._collectors:
             try:
                 collector._clear_metrics()
-            except Exception as e:
-                logger.warning("Failed to clear metrics for %s: %s", collector.name, e)
+            except Exception:
+                logger.warning("Failed to clear metrics for %s", collector.name, exc_info=True)
 
     def cleanup(self) -> None:
         """Clean up all collectors and resources."""
         for collector in self._collectors:
             try:
                 collector.cleanup()
-            except Exception as e:
-                logger.warning("Failed to cleanup collector %s: %s", collector.name, e)
+            except Exception:
+                logger.warning("Failed to cleanup collector %s", collector.name, exc_info=True)
         self._collectors = []
         self._initialized = False
         logger.info("Container cleaned up")
