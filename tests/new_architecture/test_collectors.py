@@ -226,9 +226,10 @@ class TestCPUCollector:
         collector.collect(router_client, router_info)
 
         # First sample should set NaN for percentage (no delta available)
-        assert '0' in collector._previous_samples
-        assert collector._previous_samples['0']['usage'] == 1000
-        assert collector._previous_samples['0']['total'] == 10000
+        # Uses composite key with product_id:cpu_id
+        assert 'RT-AX88U:0' in collector._previous_samples
+        assert collector._previous_samples['RT-AX88U:0']['usage'] == 1000
+        assert collector._previous_samples['RT-AX88U:0']['total'] == 10000
 
     def test_collect_cpu_usage_with_delta(self):
         collector = CPUCollector(self.registry, self.config)
@@ -247,9 +248,9 @@ class TestCPUCollector:
         router_client.get_cpu_usage.return_value = [cpu_info2]
         collector.collect(router_client, router_info)
 
-        # Verify samples were stored
-        assert collector._previous_samples['0']['usage'] == 1500
-        assert collector._previous_samples['0']['total'] == 11000
+        # Verify samples were stored (uses composite key with product_id:cpu_id)
+        assert collector._previous_samples['RT-AX88U:0']['usage'] == 1500
+        assert collector._previous_samples['RT-AX88U:0']['total'] == 11000
 
     def test_cleanup_clears_state(self):
         collector = CPUCollector(self.registry, self.config)
@@ -316,5 +317,6 @@ class TestCPUCollector:
 
         collector.collect(router_client, router_info)
 
-        assert '0' in collector._previous_samples
-        assert '1' in collector._previous_samples
+        # Uses composite key with product_id:cpu_id
+        assert 'RT-AX88U:0' in collector._previous_samples
+        assert 'RT-AX88U:1' in collector._previous_samples

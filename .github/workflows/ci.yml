@@ -106,6 +106,7 @@ jobs:
       - name: Build Docker image
         run: docker build -t asus-router-exporter:${{ github.sha }} .
 
+      # Note: Using version tag instead of SHA for better readability and Dependabot support
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@0.33.1
         with:

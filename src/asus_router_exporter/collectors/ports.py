@@ -113,11 +113,11 @@ class PortsCollector(BaseCollector):
         self._plugged.labels(product_id=product_id, port_id=port_id).set(1 if plugged else 0)
 
         # Link rate
-        link_rate = getattr(port_info, 'current_speed_rate_mbps', 0)
+        link_rate = getattr(port_info, 'current_speed_rate_mbps', 0) or 0
         self._link_rate.labels(product_id=product_id, port_id=port_id).set(link_rate)
 
         # Max rate
-        max_rate = getattr(port_info, 'max_supported_speed_rate_mbps', 0)
+        max_rate = getattr(port_info, 'max_supported_speed_rate_mbps', 0) or 0
         self._max_rate.labels(product_id=product_id, port_id=port_id).set(max_rate)
 
         # Slow speed

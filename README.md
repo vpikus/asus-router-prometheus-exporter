@@ -23,7 +23,7 @@ pip install asus-router-exporter
 ### From source
 
 ```bash
-git clone https://github.com/yourusername/asus-router-prometheus-exporter.git
+git clone https://github.com/vpikus/asus-router-prometheus-exporter.git
 cd asus-router-prometheus-exporter
 pip install -e .
 ```

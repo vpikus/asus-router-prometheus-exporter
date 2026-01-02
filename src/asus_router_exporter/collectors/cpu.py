@@ -137,7 +137,9 @@ class CPUCollector(BaseCollector):
         usage = getattr(cpu_info, 'usage', 0)
         total = getattr(cpu_info, 'total', 0)
 
-        prev = self._previous_samples.get(cpu_id)
+        # Use composite key to support multiple routers
+        sample_key = f"{product_id}:{cpu_id}"
+        prev = self._previous_samples.get(sample_key)
 
         if prev is not None:
             # Calculate deltas
@@ -175,7 +177,7 @@ class CPUCollector(BaseCollector):
             ).set(float("nan"))
 
         # Store current sample for next iteration
-        self._previous_samples[cpu_id] = {"usage": usage, "total": total}
+        self._previous_samples[sample_key] = {"usage": usage, "total": total}
 
     @staticmethod
     def _calculate_delta(current: int, previous: int) -> int:
