@@ -303,16 +303,21 @@ class NetdevCollector(BaseCollector):
         When network interfaces disappear (e.g., WAN failover, interface reconfiguration),
         their metrics would remain with stale values. This method removes those metrics
         to prevent confusion in dashboards and alerting.
+
+        Uses prometheus_client's remove() method which is thread-safe and the proper API
+        for removing specific label combinations.
         """
         stale_ids = previous_ids - current_ids
         for iface_id in stale_ids:
-            # Remove the labeled metric from the counter's internal storage
-            tx_labels = (product_id, iface_id)
-            rx_labels = (product_id, iface_id)
-            if tx_labels in tx_counter._metrics:
-                del tx_counter._metrics[tx_labels]
-            if rx_labels in rx_counter._metrics:
-                del rx_counter._metrics[rx_labels]
+            # Use prometheus_client's remove() API which is thread-safe
+            try:
+                tx_counter.remove(product_id, iface_id)
+            except KeyError:
+                pass  # Label combination doesn't exist
+            try:
+                rx_counter.remove(product_id, iface_id)
+            except KeyError:
+                pass  # Label combination doesn't exist
             logger.debug("[%s] Removed stale metrics for interface %s", product_id, iface_id)
 
     def cleanup(self) -> None:

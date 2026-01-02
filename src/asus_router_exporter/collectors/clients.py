@@ -59,8 +59,8 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
     - asus_router_client_internet_state (0/1)
     - asus_router_client_rssi_dbm
     - asus_router_client_rssi_strength (one-hot)
-    - asus_router_client_netdev_rx_bytes_total
-    - asus_router_client_netdev_tx_bytes_total
+    - asus_router_client_netdev_rx_bytes
+    - asus_router_client_netdev_tx_bytes
     - asus_router_client_netdev_rx_throughput_bps
     - asus_router_client_netdev_tx_throughput_bps
     - asus_router_client_amesh_role (one-hot)
@@ -69,6 +69,13 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
     name = "clients"
 
     # Common client labels
+    # Design Note on client_name label:
+    # Including client_name in labels could theoretically cause cardinality issues if users
+    # frequently rename devices. However, this is mitigated because:
+    # 1. Metrics are cleared at the start of each collection cycle (see _collect_metrics)
+    # 2. The number of connected clients is typically small (< 100 for home routers)
+    # 3. The client_name provides valuable context for dashboards and alerting
+    # 4. The alternative (Info metric only) would make it hard to correlate with other metrics
     CLIENT_LABELS = ["product_id", "client_mac", "client_conn_interface", "client_amesh_pap_mac", "client_name"]
 
     def __init__(
@@ -169,17 +176,20 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
         )
         self._register_metric(self._rssi_strength)
 
+        # Note: These are Gauges (not Counters) because the router reports cumulative totals
+        # that can reset when clients reconnect. Using "_bytes" without "_total" suffix
+        # follows Prometheus naming conventions where "_total" indicates a monotonic counter.
         self._rx_bytes = Gauge(
-            "asus_router_client_netdev_rx_bytes_total",
-            "Total received bytes per client as reported by router",
+            "asus_router_client_netdev_rx_bytes",
+            "Cumulative received bytes per client as reported by router (resets on reconnect)",
             self.CLIENT_LABELS,
             registry=self._registry,
         )
         self._register_metric(self._rx_bytes)
 
         self._tx_bytes = Gauge(
-            "asus_router_client_netdev_tx_bytes_total",
-            "Total transmitted bytes per client as reported by router",
+            "asus_router_client_netdev_tx_bytes",
+            "Cumulative transmitted bytes per client as reported by router (resets on reconnect)",
             self.CLIENT_LABELS,
             registry=self._registry,
         )
@@ -321,18 +331,22 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
             state_val = internet_state.value if hasattr(internet_state, "value") else internet_state
             self._internet_state.labels(**labels).set(1 if state_val else 0)
 
-        # RSSI
-        rssi = getattr(client, "rssi", None)
-        if rssi is not None:
-            self._rssi_dbm.labels(**labels).set(rssi)
-        else:
-            self._rssi_dbm.labels(**labels).set(float("nan"))
+        # RSSI - only emit for wireless clients (wired clients have no RSSI)
+        # Skip RSSI metrics entirely for wired (LAN) clients to avoid polluting
+        # metrics with meaningless NaN values.
+        is_wireless = interface is not None and interface != ClientInterface.LAN
+        if is_wireless:
+            rssi = getattr(client, "rssi", None)
+            if rssi is not None:
+                self._rssi_dbm.labels(**labels).set(rssi)
+            else:
+                self._rssi_dbm.labels(**labels).set(float("nan"))
 
-        # RSSI strength (one-hot)
-        rssi_strength = getattr(client, "rssi_strength", None)
-        self._set_onehot_enum(
-            self._rssi_strength, labels, rssi_strength, "client_rssi_strength", "RssiStrength", lambda e: e.name
-        )
+            # RSSI strength (one-hot)
+            rssi_strength = getattr(client, "rssi_strength", None)
+            self._set_onehot_enum(
+                self._rssi_strength, labels, rssi_strength, "client_rssi_strength", "RssiStrength", lambda e: e.name
+            )
 
         # Traffic statistics (instantaneous throughput values)
         traffic_stats = getattr(client, "traffic_stats", None)

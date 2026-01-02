@@ -167,23 +167,31 @@ class PortsCollector(BaseCollector):
         When ports disappear (e.g., USB port unplugged, configuration changes),
         their metrics would remain with stale values. This method removes those
         metrics to prevent confusion in dashboards and alerting.
+
+        Uses prometheus_client's remove() method which is thread-safe and the proper API
+        for removing specific label combinations.
         """
         stale_ids = previous_ids - current_ids
         for port_id in stale_ids:
-            labels = (product_id, port_id)
-            # Remove from all gauge metrics
+            # Use prometheus_client's remove() API which is thread-safe
             for gauge in [self._plugged, self._link_rate, self._max_rate, self._slow_speed]:
-                if labels in gauge._metrics:
-                    del gauge._metrics[labels]
+                try:
+                    gauge.remove(product_id, port_id)
+                except KeyError:
+                    pass  # Label combination doesn't exist
 
-            # Remove port_group metrics (has additional label)
-            keys_to_remove = [k for k in self._port_group._metrics.keys() if k[:2] == labels]
-            for key in keys_to_remove:
-                del self._port_group._metrics[key]
+            # Remove port_group metrics (has additional label for each PortGroup value)
+            for group in PortGroup:
+                try:
+                    self._port_group.remove(product_id, port_id, group.name)
+                except KeyError:
+                    pass  # Label combination doesn't exist
 
             # Remove port info metrics
-            if labels in self._port_info._metrics:
-                del self._port_info._metrics[labels]
+            try:
+                self._port_info.remove(product_id, port_id)
+            except KeyError:
+                pass  # Label combination doesn't exist
 
             logger.debug("[%s] Removed stale metrics for port %s", product_id, port_id)
 

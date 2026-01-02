@@ -348,6 +348,12 @@ class Config:
             env_value = os.getenv(var_name)
             if env_value is not None:
                 return env_value
+            # Design Note: When an env var is unset and has no default, we return empty
+            # string rather than raising an error. This is intentional because:
+            # 1. Some config fields are optional and empty string is valid
+            # 2. Required fields (like router.host/auth) will fail with clear errors
+            #    when actually used (e.g., "Cannot connect to empty host")
+            # 3. Raising here would break config loading for partially-filled configs
             return default if default is not None else ""
 
         return self.ENV_VAR_PATTERN.sub(replacer, value)

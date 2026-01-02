@@ -229,6 +229,16 @@ class Container:
                 logger.warning("Failed to cleanup collector %s", collector.name, exc_info=True)
         self._collectors = []
         self._initialized = False
+
+        # Close router client session to release HTTP connections
+        if self._router_client is not None:
+            try:
+                if hasattr(self._router_client, "close"):
+                    self._router_client.close()
+            except Exception:
+                logger.warning("Failed to close router client", exc_info=True)
+            self._router_client = None
+
         logger.info("Container cleaned up")
 
     def _create_router_client(self) -> RouterClientProtocol:

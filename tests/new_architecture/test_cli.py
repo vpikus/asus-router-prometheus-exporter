@@ -180,7 +180,23 @@ class TestValidateArgs:
             router_host=None,
             router_auth=None,
         )
-        assert validate_args(args) is True
+        # Mock os.path.exists to return True for the config file
+        with patch("os.path.exists", return_value=True):
+            assert validate_args(args) is True
+
+    def test_validate_args_with_nonexistent_config_path(self, capsys):
+        args = argparse.Namespace(
+            config_path="nonexistent.yaml",
+            router_host=None,
+            router_auth=None,
+        )
+        # Config file doesn't exist - should fail
+        with patch("os.path.exists", return_value=False):
+            result = validate_args(args)
+
+        assert result is False
+        captured = capsys.readouterr()
+        assert "Config file not found" in captured.err
 
     def test_validate_args_with_host_and_auth(self):
         args = argparse.Namespace(
@@ -250,9 +266,10 @@ class TestMain:
         mock_create_exporter.assert_called_once()
         mock_exporter.run.assert_called_once()
 
+    @patch("os.path.exists", return_value=True)
     @patch("asus_router_exporter.cli.create_exporter")
     @patch("asus_router_exporter.cli.setup_logging")
-    def test_main_with_config(self, mock_setup_logging, mock_create_exporter):
+    def test_main_with_config(self, mock_setup_logging, mock_create_exporter, mock_exists):
         mock_exporter = MagicMock()
         mock_create_exporter.return_value = mock_exporter
 
@@ -370,7 +387,9 @@ class TestCLIIntegration:
     def test_parse_and_validate_with_config(self):
         """Test parsing and validating with config file."""
         args = parse_args(["--config", "config.yaml"])
-        assert validate_args(args) is True
+        # Mock os.path.exists to return True for the config file
+        with patch("os.path.exists", return_value=True):
+            assert validate_args(args) is True
 
     def test_parse_and_validate_with_host_auth(self):
         """Test parsing and validating with host and auth."""

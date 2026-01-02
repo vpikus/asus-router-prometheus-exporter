@@ -43,6 +43,27 @@ def setup_logging(level: str = "INFO", mask_sensitive: bool = True) -> None:
     root_logger.handlers = [handler]
 
 
+def _safe_int_from_env(env_var: str, default: int) -> int:
+    """
+    Safely parse an integer from environment variable.
+
+    Args:
+        env_var: Environment variable name
+        default: Default value if not set or invalid
+
+    Returns:
+        Parsed integer or default
+    """
+    value = os.getenv(env_var)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        print(f"Warning: Invalid {env_var} value '{value}', using default {default}", file=sys.stderr)
+        return default
+
+
 def parse_args(args: list | None = None) -> argparse.Namespace:
     """
     Parse command-line arguments.
@@ -94,7 +115,7 @@ Environment variables:
         "--metrics-port",
         dest="metrics_port",
         type=int,
-        default=int(os.getenv("ASUS_METRICS_PORT", "8000")),
+        default=_safe_int_from_env("ASUS_METRICS_PORT", 8000),
         help="Port for Prometheus metrics HTTP server (default: 8000)",
     )
 
@@ -133,8 +154,18 @@ def validate_args(args: argparse.Namespace) -> bool:
     Returns:
         True if valid, False otherwise
     """
-    # If config file is provided, other args are optional
+    # If config file is provided, validate file exists and warn about required fields
     if args.config_path:
+        import os.path
+
+        if not os.path.exists(args.config_path):
+            print(f"Error: Config file not found: {args.config_path}", file=sys.stderr)
+            return False
+
+        # Note: Full validation of router.host and router.auth happens when Config.load()
+        # processes the file and substitutes environment variables. If those fields are
+        # missing or empty, create_exporter() will fail with a clear error message.
+        # We can't validate here because env var substitution hasn't happened yet.
         return True
 
     # Otherwise, router-host and router-auth are required

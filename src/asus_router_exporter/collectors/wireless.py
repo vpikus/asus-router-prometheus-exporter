@@ -207,24 +207,43 @@ class WirelessCollector(BaseCollector):
         When wireless bands become unavailable (e.g., radio disabled, configuration
         change), their metrics would remain with stale values. This method removes
         those metrics to prevent confusion in dashboards and alerting.
+
+        Uses prometheus_client's remove() method which is thread-safe and the proper API
+        for removing specific label combinations.
         """
         stale_bands = previous_bands - current_bands
         for wl_unit in stale_bands:
-            labels = (product_id, wl_unit)
-
+            # Use prometheus_client's remove() API which is thread-safe
             # Remove band info metric
-            if labels in self._band_info._metrics:
-                del self._band_info._metrics[labels]
+            try:
+                self._band_info.remove(product_id, wl_unit)
+            except KeyError:
+                pass  # Label combination doesn't exist
 
             # Remove ssid_hidden metric
-            if labels in self._ssid_hidden._metrics:
-                del self._ssid_hidden._metrics[labels]
+            try:
+                self._ssid_hidden.remove(product_id, wl_unit)
+            except KeyError:
+                pass  # Label combination doesn't exist
 
-            # Remove one-hot metrics (have additional labels)
-            for gauge in [self._band_mode, self._auth_mode, self._crypto]:
-                keys_to_remove = [k for k in gauge._metrics.keys() if k[:2] == labels]
-                for key in keys_to_remove:
-                    del gauge._metrics[key]
+            # Remove one-hot metrics (iterate over all enum values)
+            for mode in client_models.WifiMode:
+                try:
+                    self._band_mode.remove(product_id, wl_unit, mode.name)
+                except KeyError:
+                    pass
+
+            for auth_mode in client_models.WifiAuthMode:
+                try:
+                    self._auth_mode.remove(product_id, wl_unit, auth_mode.value)
+                except KeyError:
+                    pass
+
+            for crypto in client_models.WifiCrypto:
+                try:
+                    self._crypto.remove(product_id, wl_unit, crypto.value)
+                except KeyError:
+                    pass
 
             logger.debug("[%s] Removed stale metrics for wireless band %s", product_id, wl_unit)
 
