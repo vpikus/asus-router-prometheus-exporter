@@ -3,16 +3,18 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import threading
 from collections import Counter
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 import requests
 
-from asus_router_client_exceptions import *
-from asus_router_logging import SensitiveFormatter, mask_sensitive_data
-from asus_router_models import *
-from asus_router_utils import *
+from ..core.exceptions import AuthenticationError
+from ..utils.logging import SensitiveFormatter, mask_sensitive_data
+from ..utils.parsing import *
+from .models import *
 
 # Configure logger with SensitiveFormatter to ensure credentials are masked
 # even when this module is used standalone (without asus_router_prometheus.py).
@@ -37,9 +39,46 @@ DEFAULT_TIMEOUT = 10
 class RouterClient:
     host: str
     session: requests.Session
+    _auth_token: str = ""
 
-    @staticmethod
-    def __handle_response(response: requests.Response) -> str:
+    def _reauthenticate(self) -> None:
+        """Re-authenticate with the router to get a new session."""
+        if not self._auth_token:
+            raise AuthenticationError("Cannot re-authenticate: no auth token stored")
+
+        logger.info("Session expired, re-authenticating...")
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        payload = f"login_authorization={self._auth_token}"
+        url = f"{self.host}/login.cgi"
+
+        # Create new session
+        new_session = requests.Session()
+        masked_payload = mask_sensitive_data(payload)
+        logger.debug("Request: POST %s | Data: %s", url, masked_payload)
+        response = new_session.post(
+            url, headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers}, data=payload, timeout=DEFAULT_TIMEOUT
+        )
+        masked_body = mask_sensitive_data(response.text)
+        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
+        response.raise_for_status()
+
+        # Replace old session with new one
+        self.session = new_session
+        logger.info("Re-authentication successful")
+
+    def _handle_response(self, response: requests.Response) -> str:
+        """
+        Handle API response, checking for authentication errors.
+
+        Args:
+            response: The HTTP response to handle
+
+        Returns:
+            Response text
+
+        Raises:
+            AuthenticationError: If authentication failed (session expired)
+        """
         # Mask sensitive data BEFORE truncating to prevent partial field leakage
         masked_body = mask_sensitive_data(response.text)
         logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
@@ -47,20 +86,25 @@ class RouterClient:
         try:
             data = response.json()
             if "error_status" in data:
-                # TODO: handle 2 (probable token expired), 10 (captcha is required) and other statuses
-                raise AuthenticationException()
+                raise AuthenticationError("Router authentication failed (session expired)")
         except json.decoder.JSONDecodeError:
             pass
         return response.text
 
     def __get_hook(self, name: str, args: str = "") -> str:
+        return self._request_with_reauth(self.__get_hook_impl, name, args)
+
+    def __get_hook_impl(self, name: str, args: str = "") -> str:
         url = f"{self.host}/appGet.cgi"
         params = {"hook": f"{name}({args})"}
         logger.debug("Request: GET %s | Params: %s", url, params)
         response = self.session.get(url, params=params, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
-        return self.__handle_response(response)
+        return self._handle_response(response)
 
     def __get_nvram(self, *nvrams: str):
+        return self._request_with_reauth(self.__get_nvram_impl, *nvrams)
+
+    def __get_nvram_impl(self, *nvrams: str):
         def __nvramget(*vars_: str) -> str:
             return ";".join(f"nvram_get({v})" for v in vars_)
 
@@ -69,20 +113,44 @@ class RouterClient:
         logger.debug("Request: GET %s | Params: %s", url, params)
         response = self.session.get(url, params=params, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
 
-        text = self.__handle_response(response)
+        text = self._handle_response(response)
         return json.loads(text)
 
+    def _request_with_reauth(self, func, *args, **kwargs):
+        """
+        Execute a request function with automatic re-authentication on session expiry.
+
+        Args:
+            func: The request function to execute
+            *args: Arguments to pass to the function
+            **kwargs: Keyword arguments to pass to the function
+
+        Returns:
+            The result of the function
+
+        Raises:
+            AuthenticationError: If re-authentication also fails
+        """
+        try:
+            return func(*args, **kwargs)
+        except AuthenticationError:
+            if not self._auth_token:
+                raise  # Can't re-auth without stored token
+            self._reauthenticate()
+            # Retry once after re-authentication
+            return func(*args, **kwargs)
+
     def get_core_temp(self) -> TemperatureInfo:
+        return self._request_with_reauth(self._get_core_temp_impl)
+
+    def _get_core_temp_impl(self) -> TemperatureInfo:
         url = f"{self.host}/ajax_coretmp.asp"
         logger.debug("Request: GET %s", url)
         response = self.session.get(url, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
-        # Mask sensitive data BEFORE truncating to prevent partial field leakage
-        masked_body = mask_sensitive_data(response.text)
-        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
-        response.raise_for_status()
+        self._handle_response(response)
         payload = response.text
         pattern = re.compile(r'(\w+)\s*=\s*("?[^";]+"?);')
-        parsed = dict((m.group(1), m.group(2).strip('"')) for m in pattern.finditer(payload))
+        parsed = {m.group(1): m.group(2).strip('"') for m in pattern.finditer(payload)}
 
         return TemperatureInfo(cpu=float(parsed["curr_cpuTemp"]))
 
@@ -101,7 +169,7 @@ class RouterClient:
         mm = int(schedule[9:11])
         return RebootScheduleConf(weekday_mask=mask, hh=hh, mm=mm)
 
-    def get_reboot_schedule_time(self) -> Optional[RebootScheduleInfo]:
+    def get_reboot_schedule_time(self) -> RebootScheduleInfo | None:
         caps = self.get_supported_features()
         if not caps.is_supported("reboot_schedule"):
             return None
@@ -191,7 +259,7 @@ class RouterClient:
 
         caps = self.get_supported_features()
         sw_mode = self.get_sw_mode()
-        wlc_band = nvrams[f"wlc_band"]
+        wlc_band = nvrams["wlc_band"]
         concurrep_support = caps.is_supported("concurrep")
         if caps.is_supported("2.4G"):
             repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_2G))
@@ -273,7 +341,7 @@ class RouterClient:
         )
 
         internet_ids = ids_for("INTERNET", netdev.keys())
-        internet: dict[int, ThroughputInfo] = {
+        internet: dict[str, ThroughputInfo] = {
             iid: ThroughputInfo(
                 total_upload_bytes=parse_hex(netdev.get(f"INTERNET{iid}_tx")),
                 total_download_bytes=parse_hex(netdev.get(f"INTERNET{iid}_rx")),
@@ -282,7 +350,7 @@ class RouterClient:
         }
 
         wireless_ids = ids_for("WIRELESS", netdev.keys())
-        wireless: dict[int, ThroughputInfo] = {
+        wireless: dict[str, ThroughputInfo] = {
             wid: ThroughputInfo(
                 total_upload_bytes=parse_hex(netdev.get(f"WIRELESS{wid}_tx")),
                 total_download_bytes=parse_hex(netdev.get(f"WIRELESS{wid}_rx")),
@@ -308,7 +376,7 @@ class RouterClient:
         if ((sw_mode == 2 and wlc_psta == 0) or (sw_mode == 3 and wlc_psta == 2)) and wlc_express == 0:
             # Repeater
             mode = SwMode.RE
-        elif sw_mode == 3 and (wlc_psta == 0 or wlc_psta == ""):
+        elif sw_mode == 3 and wlc_psta == 0:
             # Access Point
             mode = SwMode.AP
         elif (sw_mode == 3 and wlc_psta in (1, 3) and wlc_express == 0) or (
@@ -420,14 +488,14 @@ class RouterClient:
         return network_wan_info
 
     def get_port_status_infos(self, mac: str) -> list[PortInfo]:
+        return self._request_with_reauth(self._get_port_status_infos_impl, mac)
+
+    def _get_port_status_infos_impl(self, mac: str) -> list[PortInfo]:
         url = f"{self.host}/get_port_status.cgi"
         params = {"node_mac": mac}
         logger.debug("Request: GET %s | Params: %s", url, params)
         response = self.session.get(url, params=params, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
-        # Mask sensitive data BEFORE truncating to prevent partial field leakage
-        masked_body = mask_sensitive_data(response.text)
-        logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
-        response.raise_for_status()
+        self._handle_response(response)
 
         port_infos: list[PortInfo] = []
         port_info_raw = response.json().get("port_info", {}).get(mac, {})
@@ -446,14 +514,16 @@ class RouterClient:
         op_mode = int(client_data["opMode"])
         ip_method = trim_to_none(client_data["ipMethod"])
         last_conn_ts = int_or_none(client_db_data["conn_ts"])
+        interface = ClientInterface.from_code(int(client_data["isWL"])) or ClientInterface.LAN
+        last_conn_interface = ClientInterface.from_code(int(client_db_data["is_wireless"])) or ClientInterface.LAN
         client_info = ClientInfo(
             name=client_data["name"],
             nick_name=client_data["nickName"],
             ipaddr=client_data["ip"],
             mac=client_data["mac"],
             vendor=client_data["vendor"],
-            interface=ClientInterface.from_code(int(client_data["isWL"])),
-            last_conn_interface=ClientInterface.from_code(int(client_db_data["is_wireless"])),
+            interface=interface,
+            last_conn_interface=last_conn_interface,
             online=to_bool(client_data["isOnline"]),
             op_mode=ClientOperationMode(op_mode) if op_mode > 0 else None,
             rssi=int_or_none(client_data["rssi"]),
@@ -462,7 +532,7 @@ class RouterClient:
             internet_state=ClientInternetState(to_bool(client_data["internetState"])),
             os_type=safe_int(client_db_data["os_type"]),
             device_type=safe_int(client_db_data["type"]),
-            last_conn_ts=last_conn_ts if last_conn_ts > 0 else None,
+            last_conn_ts=last_conn_ts if last_conn_ts is not None and last_conn_ts > 0 else None,
         )
         if caps.is_supported("stainfo"):
             total_tx = int_or_none(client_data["totalTx"])
@@ -506,6 +576,7 @@ class RouterClient:
 
     def _map_client_info_from_db(self, caps: RouterFeatureCapabilities, client_db_data) -> BaseClientInfo:
         last_conn_ts = int_or_none(client_db_data["conn_ts"])
+        last_conn_interface = ClientInterface.from_code(int(client_db_data["is_wireless"])) or ClientInterface.LAN
         client_info = BaseClientInfo(
             name=client_db_data["name"],
             nick_name=client_db_data["nickName"],
@@ -514,8 +585,8 @@ class RouterClient:
             online=to_bool(client_db_data["online"]),
             os_type=safe_int(client_db_data["os_type"]),
             device_type=safe_int(client_db_data["type"]),
-            last_conn_ts=last_conn_ts if last_conn_ts > 0 else None,
-            last_conn_interface=ClientInterface.from_code(int(client_db_data["is_wireless"])),
+            last_conn_ts=last_conn_ts if last_conn_ts is not None and last_conn_ts > 0 else None,
+            last_conn_interface=last_conn_interface,
         )
 
         if caps.is_supported("amas"):
@@ -542,6 +613,7 @@ class RouterClient:
             if not is_valid_mac(client_mac):
                 continue
 
+            client_info: BaseClientInfo
             if client_mac in get_clientlist:
                 client_data = get_clientlist[client_mac]
                 client_info = self._map_client_info(caps, client_data, client_db_data)
@@ -576,4 +648,4 @@ class RouterClientFactory:
         masked_body = mask_sensitive_data(response.text)
         logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
         response.raise_for_status()
-        return RouterClient(self.host, session)
+        return RouterClient(self.host, session, _auth_token=token)

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   asus-router-exporter:
     build: .
@@ -7,13 +5,56 @@ services:
     ports:
       - "8000:8000"
     environment:
-      "ASUS_LOG_LEVEL": "DEBUG"
-      "ASUS_ROUTER_HOST": '${ASUS_ROUTER_HOST:-192.168.1.1}'
-      "ASUS_ROUTER_AUTH": '${ASUS_ROUTER_AUTH:-username:password}'
+      ASUS_SCRAPE_INTERVAL: 2
+      ASUS_LOG_LEVEL: ${ASUS_LOG_LEVEL:-INFO}
+      ASUS_ROUTER_HOST: ${ASUS_ROUTER_HOST:-192.168.1.1} # use your router IP
+      ASUS_ROUTER_AUTH: ${ASUS_ROUTER_AUTH:-username:password} # it's an example, use your own credentials
     restart: unless-stopped
     networks:
       - monitoring
 
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      #- ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      #- ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    restart: unless-stopped
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+
 networks:
   monitoring:
     driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:

@@ -5,7 +5,7 @@ Tests for asus_router_models module.
 import pytest
 from datetime import datetime
 
-from asus_router_models import (
+from asus_router_exporter.client.models import (
     TemperatureInfo,
     CpuInfo,
     MemoryInfo,

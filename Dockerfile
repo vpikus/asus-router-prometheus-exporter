@@ -12,7 +12,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY asus_router_* .
+COPY src/ ./src/
+
+# Set Python path to include package
+ENV PYTHONPATH="/app/src:$PYTHONPATH"
 
 # Create non-root user
 RUN addgroup -g 1000 exporter && \
@@ -34,11 +37,5 @@ ENV ASUS_LOG_LEVEL=INFO
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics').read()" || exit 1
 
-RUN <<'EOT' cat > run && chmod 0755 run
-#!/bin/sh
-
-exec python ./asus_router_prometheus.py
-EOT
-
 # Run the exporter
-CMD ["./run"]
+CMD ["python", "-m", "asus_router_exporter.cli"]

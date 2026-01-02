@@ -6,9 +6,9 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 import requests
 
-from asus_router_client import RouterClient, RouterClientFactory
-from asus_router_client_exceptions import AuthenticationException
-from asus_router_models import (
+from asus_router_exporter.client import RouterClient, RouterClientFactory
+from asus_router_exporter.core.exceptions import AuthenticationError
+from asus_router_exporter.client.models import (
     SwMode,
     WifiBand,
     WanState,
@@ -83,7 +83,7 @@ class TestRouterClientFactory:
         factory = RouterClientFactory("http://192.168.1.1/")
         assert factory.host == "http://192.168.1.1"
 
-    @patch('asus_router_client.requests.Session')
+    @patch('asus_router_exporter.client.router_client.requests.Session')
     def test_factory_auth_success(self, mock_session_class):
         mock_session = Mock()
         mock_session_class.return_value = mock_session
@@ -304,14 +304,16 @@ class TestRouterClientParseSchedule:
 
 
 class TestRouterClientHandleResponse:
-    """Tests for __handle_response static method."""
+    """Tests for _handle_response instance method."""
 
     def test_handle_response_success(self):
+        client = RouterClient(host="http://test", session=requests.Session())
         response = create_mock_response('{"data": "value"}')
-        result = RouterClient._RouterClient__handle_response(response)
+        result = client._handle_response(response)
         assert result == '{"data": "value"}'
 
     def test_handle_response_auth_error(self):
+        client = RouterClient(host="http://test", session=requests.Session())
         response = create_mock_response(LOGIN_ERROR_RESPONSE)
-        with pytest.raises(AuthenticationException):
-            RouterClient._RouterClient__handle_response(response)
+        with pytest.raises(AuthenticationError):
+            client._handle_response(response)

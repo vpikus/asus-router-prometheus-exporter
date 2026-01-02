@@ -6,7 +6,7 @@ import pytest
 import logging
 from unittest.mock import patch
 
-from asus_router_logging import (
+from asus_router_exporter.utils.logging import (
     mask_sensitive_data,
     SensitiveFormatter,
     _mask_string,
@@ -363,6 +363,6 @@ class TestSensitiveFormatter:
             exc_info=None
         )
         # Mock mask_sensitive_data to raise an exception
-        with patch('asus_router_logging.mask_sensitive_data', side_effect=Exception("Regex error")):
+        with patch('asus_router_exporter.utils.logging.mask_sensitive_data', side_effect=Exception("Regex error")):
             result = formatter.format(record)
             assert result == "[MASKING FAILED - LOG REDACTED]"
