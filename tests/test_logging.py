@@ -2,16 +2,17 @@
 Tests for asus_router_logging module.
 """
 
-import pytest
 import logging
 from unittest.mock import patch
 
-from asus_router_logging import (
-    mask_sensitive_data,
+import pytest
+
+from asus_router_exporter.utils.logging import (
     SensitiveFormatter,
-    _mask_string,
     _mask_ip,
     _mask_mac,
+    _mask_string,
+    mask_sensitive_data,
 )
 
 
@@ -190,7 +191,7 @@ class TestMaskSensitiveData:
         assert mask_sensitive_data(None) is None
 
     def test_complex_json(self):
-        text = '''{
+        text = """{
             "productid": "RT-AX88U",
             "lan_hwaddr": "AA:BB:CC:DD:EE:FF",
             "lan_hostname": "MyRouter",
@@ -203,7 +204,7 @@ class TestMaskSensitiveData:
                     "vendor": "Apple"
                 }
             }
-        }'''
+        }"""
         result = mask_sensitive_data(text)
 
         # Product ID should be preserved
@@ -284,7 +285,7 @@ class TestSensitiveFormatter:
             lineno=0,
             msg="Connected to 192.168.1.1",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
         result = formatter.format(record)
         assert "192.168.1.1" not in result
@@ -299,7 +300,7 @@ class TestSensitiveFormatter:
             lineno=0,
             msg="MAC: AA:BB:CC:DD:EE:FF",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
         result = formatter.format(record)
         assert "DD:EE:FF" not in result
@@ -314,7 +315,7 @@ class TestSensitiveFormatter:
             lineno=0,
             msg="Auth: login_authorization=abc123def456",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
         result = formatter.format(record)
         assert "abc123def456" not in result
@@ -323,13 +324,7 @@ class TestSensitiveFormatter:
     def test_formatter_with_format_string(self):
         formatter = SensitiveFormatter("%(levelname)s - %(message)s")
         record = logging.LogRecord(
-            name="test",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="IP: 10.0.0.1",
-            args=(),
-            exc_info=None
+            name="test", level=logging.INFO, pathname="", lineno=0, msg="IP: 10.0.0.1", args=(), exc_info=None
         )
         result = formatter.format(record)
         assert result.startswith("INFO - ")
@@ -345,7 +340,7 @@ class TestSensitiveFormatter:
             lineno=0,
             msg="Normal log message without sensitive data",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
         result = formatter.format(record)
         assert result == "Normal log message without sensitive data"
@@ -360,9 +355,9 @@ class TestSensitiveFormatter:
             lineno=0,
             msg="Sensitive data: 192.168.1.1",
             args=(),
-            exc_info=None
+            exc_info=None,
         )
         # Mock mask_sensitive_data to raise an exception
-        with patch('asus_router_logging.mask_sensitive_data', side_effect=Exception("Regex error")):
+        with patch("asus_router_exporter.utils.logging.mask_sensitive_data", side_effect=Exception("Regex error")):
             result = formatter.format(record)
             assert result == "[MASKING FAILED - LOG REDACTED]"

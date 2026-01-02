@@ -2,47 +2,48 @@
 Tests for asus_router_models module.
 """
 
-import pytest
 from datetime import datetime
 
-from asus_router_models import (
-    TemperatureInfo,
+import pytest
+
+from asus_router_exporter.client.models import (
+    BaseClientInfo,
+    ClientInfo,
+    ClientInterface,
+    ClientInternetMode,
+    ClientInternetState,
+    ClientIpMethod,
+    ClientOperationMode,
     CpuInfo,
-    MemoryInfo,
-    UptimeInfo,
-    ThroughputInfo,
-    NetdevInfo,
-    WifiBand,
-    WifiMode,
-    WifiAuthMode,
-    WifiCrypto,
-    WifiMfp,
-    WifiWpsWep,
-    WifiBandInfo,
-    WifiInfo,
-    SwMode,
-    WanStatus,
-    WanState,
-    WanSubState,
-    WanAuxState,
-    LinkInternet,
-    WanConnectionInfo,
-    WanMode,
     DualWanOrigin,
+    EthernetRate,
+    LinkInternet,
+    MemoryInfo,
+    NetdevInfo,
     PortCapability,
     PortGroup,
     PortInfo,
-    EthernetRate,
-    ClientInterface,
-    ClientInfo,
-    BaseClientInfo,
-    ClientOperationMode,
-    ClientIpMethod,
-    ClientInternetMode,
-    ClientInternetState,
-    RssiStrength,
     RebootScheduleConf,
     RouterFeatureCapabilities,
+    RssiStrength,
+    SwMode,
+    TemperatureInfo,
+    ThroughputInfo,
+    UptimeInfo,
+    WanAuxState,
+    WanConnectionInfo,
+    WanMode,
+    WanState,
+    WanStatus,
+    WanSubState,
+    WifiAuthMode,
+    WifiBand,
+    WifiBandInfo,
+    WifiCrypto,
+    WifiInfo,
+    WifiMfp,
+    WifiMode,
+    WifiWpsWep,
 )
 
 
@@ -140,7 +141,7 @@ class TestWifiBandInfo:
             mfp=WifiMfp.DISABLE,
             wep=WifiWpsWep.NONE,
             hidde_ssid=False,
-            mbo_enabled=False
+            mbo_enabled=False,
         )
         assert band.ssid == "MyNetwork"
         assert band.auth_mode == WifiAuthMode.PSK2
@@ -164,7 +165,7 @@ class TestWanConnectionInfo:
             state=WanState.CONNECTED,
             substate=WanSubState.OK,
             auxstate=WanAuxState.CONNECTED,
-            link_internet=LinkInternet.ONLINE
+            link_internet=LinkInternet.ONLINE,
         )
         assert info.is_connected is True
 
@@ -173,7 +174,7 @@ class TestWanConnectionInfo:
             state=WanState.IDLE,
             substate=WanSubState.OK,
             auxstate=WanAuxState.DISCONNECTED,
-            link_internet=LinkInternet.OFFLINE
+            link_internet=LinkInternet.OFFLINE,
         )
         assert info.is_connected is False
 
@@ -187,7 +188,7 @@ class TestPortInfo:
             plugged=True,
             capability=PortCapability.LAN,
             max_supported_speed_rate_mbps=1000,
-            current_speed_rate_mbps=100
+            current_speed_rate_mbps=100,
         )
         assert port.id == "L1"
         assert port.plugged is True
@@ -199,7 +200,7 @@ class TestPortInfo:
             plugged=True,
             capability=PortCapability.LAN,
             max_supported_speed_rate_mbps=1000,
-            current_speed_rate_mbps=100
+            current_speed_rate_mbps=100,
         )
         assert port.is_slow_speed is True
 
@@ -209,7 +210,7 @@ class TestPortInfo:
             plugged=False,
             capability=PortCapability.LAN,
             max_supported_speed_rate_mbps=1000,
-            current_speed_rate_mbps=0
+            current_speed_rate_mbps=0,
         )
         assert port.is_slow_speed is False
 
@@ -219,7 +220,7 @@ class TestPortInfo:
             plugged=True,
             capability=PortCapability.WAN,
             max_supported_speed_rate_mbps=1000,
-            current_speed_rate_mbps=1000
+            current_speed_rate_mbps=1000,
         )
         assert port.group == PortGroup.WAN
 
@@ -273,7 +274,7 @@ class TestClientInfo:
             ip_method=ClientIpMethod.DHCP,
             internet_mode=ClientInternetMode.ALLOW,
             internet_state=ClientInternetState.ALLOW,
-            conn_time="01:30:45"
+            conn_time="01:30:45",
         )
         # 1*3600 + 30*60 + 45 = 5445
         assert client.conn_ts == 5445

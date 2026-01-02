@@ -3,22 +3,24 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import datetime
-from enum import Enum, IntFlag, StrEnum, IntEnum
-from typing import Optional
+from enum import Enum, IntEnum, IntFlag, StrEnum
 
 
 @dataclass
 class TemperatureInfo:
     cpu: float
 
+
 @dataclass
 class CpuInfo:
     total: int
     usage: int
 
+
 @dataclass
 class MemoryInfo:
     """Memory statistics from router (all values in kilobytes)."""
+
     total_kb: int
     """Total memory in kilobytes."""
     used_kb: int
@@ -26,10 +28,12 @@ class MemoryInfo:
     free_kb: int
     """Free memory in kilobytes."""
 
+
 @dataclass
 class UptimeInfo:
     systime: datetime
     boottime: int
+
 
 @dataclass
 class RebootScheduleConf:
@@ -54,6 +58,7 @@ class RebootScheduleInfo:
     until_ms: int
     schedule: RebootScheduleConf
 
+
 @dataclass
 class ThroughputInfo:
     total_upload_bytes: int
@@ -63,9 +68,9 @@ class ThroughputInfo:
 @dataclass
 class NetdevInfo:
     bridge: ThroughputInfo
-    internet: dict[int, ThroughputInfo]
+    internet: dict[str, ThroughputInfo]
     wired: ThroughputInfo
-    wireless: dict[int, ThroughputInfo]
+    wireless: dict[str, ThroughputInfo]
 
 
 class WifiBand(IntEnum):
@@ -74,15 +79,16 @@ class WifiBand(IntEnum):
     _6G = 4
     _60G = 6
 
+
 @dataclass
 class WifiInfo:
     bands_count: dict[WifiBand, int]
     wps_enabled: bool
     smart_connect_enabled: bool
-    band_2G_info: Optional[WifiBandInfo] = None
-    band_5G_info: Optional[WifiBandInfo] = None
-    band_5G_2_info: Optional[WifiBandInfo] = None
-    band_6G_info: Optional[WifiBandInfo] = None
+    band_2G_info: WifiBandInfo | None = None
+    band_5G_info: WifiBandInfo | None = None
+    band_5G_2_info: WifiBandInfo | None = None
+    band_6G_info: WifiBandInfo | None = None
 
     def is_supported(self, b: WifiBand) -> bool:
         return bool(self.bands_count.get(b, 0))
@@ -100,7 +106,7 @@ class WifiUnit(IntEnum):
     WL_2G = 0
     WL_5G = 1
     WL_5G_2 = 2
-    WL_6G = 3 #???
+    WL_6G = 3  # ???
 
 
 class WifiAuthMode(StrEnum):
@@ -126,6 +132,7 @@ class WifiMfp(IntEnum):
     """
     Protected Management Frames
     """
+
     DISABLE = 0
     CAPABLE = 1
     REQUIRED = 2
@@ -135,9 +142,11 @@ class WifiWpsWep(IntEnum):
     """
     Wired Equivalent Privacy
     """
+
     NONE = 0
     WEP_64b = 1
     WEP_128b = 2
+
 
 @dataclass
 class WifiBandInfo:
@@ -153,11 +162,12 @@ class WifiBandInfo:
 
 
 class DualWanOrigin(StrEnum):
-    NONE = 'none'
-    WAN = 'wan'
-    LAN = 'lan'
-    USB = 'usb'
-    DSL = 'dsl'
+    NONE = "none"
+    WAN = "wan"
+    LAN = "lan"
+    USB = "usb"
+    DSL = "dsl"
+
 
 @dataclass
 class DualWanInfo:
@@ -167,7 +177,6 @@ class DualWanInfo:
     active_wan_unit: int
     enabled: bool
     wans_mode: WanMode
-    pass
 
 
 class QosType(IntEnum):
@@ -176,6 +185,7 @@ class QosType(IntEnum):
     BANDWIDTH_LIMITER = 2
     GEFORCE = 3
     cake = 9
+
 
 @dataclass
 class RouterInfo:
@@ -187,7 +197,7 @@ class RouterInfo:
     bl_version: str
     svc_ready: bool
     qos_enable: bool
-    qos_type: Optional[QosType]
+    qos_type: QosType | None
     bwdpi_app_rulelist: str
     firmver: str
     extendno: str
@@ -196,18 +206,15 @@ class RouterInfo:
     sw_mode: SwMode
     caps: RouterFeatureCapabilities
     uptime: UptimeInfo
-    reboot_schedule: Optional[RebootScheduleInfo]
+    reboot_schedule: RebootScheduleInfo | None
     serial_no: str
     software_update_available: bool
     ports_info: list[PortInfo]
 
 
 class RouterFeatureCapabilities:
-
     def __init__(self, cap):
-        self.caps: dict[str, int] = {
-            str(k): int(v) for k, v in cap.items()
-        }
+        self.caps: dict[str, int] = {str(k): int(v) for k, v in cap.items()}
 
     def __getitem__(self, key: str) -> int:
         return self.caps.get(key, 0)
@@ -297,22 +304,24 @@ class WanMode(StrEnum):
     FAIL_BACK = "fb"
     LOAD_BALANCE = "lb"
 
+
 @dataclass
 class WanInfo:
     status: WanStatus
     connection_info: WanConnectionInfo
     active: bool
-    ipaddr: Optional[str] = None
-    proto: Optional[WanProtoType] = None
+    ipaddr: str | None = None
+    proto: WanProtoType | None = None
+
 
 @dataclass
 class NetworkWanInfo:
     mode: SwMode
     link_internet: LinkInternet
-    dual_wan_info: Optional[DualWanInfo] = None
-    primary_wan: Optional[WanInfo] = None
-    secondary_wan: Optional[WanInfo] = None
-    lan_info: Optional[LanInfo] = None
+    dual_wan_info: DualWanInfo | None = None
+    primary_wan: WanInfo | None = None
+    secondary_wan: WanInfo | None = None
+    lan_info: LanInfo | None = None
 
     @property
     def has_internet(self) -> bool:
@@ -345,6 +354,7 @@ class LinkInternet(IntEnum):
     TESTING = 1
     ONLINE = 2
 
+
 @dataclass
 class WanConnectionInfo:
     state: WanState
@@ -355,11 +365,12 @@ class WanConnectionInfo:
     @property
     def is_connected(self) -> bool:
         return (
-            self.link_internet == LinkInternet.ONLINE and
-            self.state == WanState.CONNECTED and
-            self.substate == WanSubState.OK and
-            self.auxstate == WanAuxState.CONNECTED
+            self.link_internet == LinkInternet.ONLINE
+            and self.state == WanState.CONNECTED
+            and self.substate == WanSubState.OK
+            and self.auxstate == WanAuxState.CONNECTED
         )
+
 
 @dataclass
 class DslInfo:
@@ -379,11 +390,13 @@ class LanProtoType(StrEnum):
     L2TP = "l2tp"
     PPTP = "pptp"
 
+
 @dataclass
 class LanInfo:
     state: LanState
     ipaddr: str
     proto: LanProtoType
+
 
 class PortCapability(IntFlag):
     WAN = 1 << 0
@@ -410,6 +423,7 @@ class PortGroup(StrEnum):
     LAN = "L"
     USB = "U"
 
+
 class EthernetRate(Enum):
     RATE_10 = (10, "10 Mbps")
     RATE_100 = (100, "100 Mbps")
@@ -426,7 +440,7 @@ class EthernetRate(Enum):
         return self.value[1]
 
     @classmethod
-    def from_mbps(cls, mbps: int) -> Optional[EthernetRate]:
+    def from_mbps(cls, mbps: int) -> EthernetRate | None:
         for rate in cls:
             if rate.mbps == mbps:
                 return rate
@@ -447,15 +461,17 @@ class UsbRate(Enum):
         return self.value[1]
 
     @classmethod
-    def from_mbps(cls, mbps: int) -> Optional[UsbRate]:
+    def from_mbps(cls, mbps: int) -> UsbRate | None:
         for rate in cls:
             if rate.mbps == mbps:
                 return rate
         return None
 
+
 @dataclass
 class PortInfo:
     """Detailed info about a single port."""
+
     id: str
     plugged: bool
     capability: PortCapability
@@ -473,9 +489,11 @@ class PortInfo:
     @property
     def special_port_name(self) -> str:
         if self.group == PortGroup.USB:
-            return UsbRate.from_mbps(self.max_supported_speed_rate_mbps).label
+            usb_rate = UsbRate.from_mbps(self.max_supported_speed_rate_mbps)
+            return usb_rate.label if usb_rate else "Unknown"
         else:
-            return EthernetRate.from_mbps(self.max_supported_speed_rate_mbps).label
+            eth_rate = EthernetRate.from_mbps(self.max_supported_speed_rate_mbps)
+            return eth_rate.label if eth_rate else "Unknown"
 
 
 class ClientInterface(Enum):
@@ -495,7 +513,7 @@ class ClientInterface(Enum):
         return self.value[1]
 
     @classmethod
-    def from_code(cls, code: int) -> Optional[ClientInterface]:
+    def from_code(cls, code: int) -> ClientInterface | None:
         for interface in cls:
             if interface.code == code:
                 return interface
@@ -548,10 +566,10 @@ class ClientAmeshRole(StrEnum):
 
 @dataclass
 class ClientAmeshInfo:
-    role: Optional[ClientAmeshRole]
-    pap_mac: Optional[str] = None
-    bind_mac: Optional[str] = None
-    bind_band: Optional[int] = None
+    role: ClientAmeshRole | None
+    pap_mac: str | None = None
+    bind_mac: str | None = None
+    bind_band: int | None = None
 
 
 class ClientBrand(Enum):
@@ -605,11 +623,8 @@ class ClientBrand(Enum):
         return self.value[2]
 
     @staticmethod
-    def find_by_types(device_type: int, os_type: int) -> list["ClientBrand"]:
-        return [
-            b for b in ClientBrand
-            if b.device_type == device_type and b.os_type == os_type
-        ]
+    def find_by_types(device_type: int, os_type: int) -> list[ClientBrand]:
+        return [b for b in ClientBrand if b.device_type == device_type and b.os_type == os_type]
 
 
 class ClientDeviceCategory(Enum):
@@ -662,11 +677,8 @@ class ClientDeviceCategory(Enum):
         return self.value[2]
 
     @staticmethod
-    def find_by_types(device_type: int, os_type: int) -> list["ClientDeviceCategory"]:
-        return [
-            c for c in ClientDeviceCategory
-            if c.device_type == device_type and c.os_type == os_type
-        ]
+    def find_by_types(device_type: int, os_type: int) -> list[ClientDeviceCategory]:
+        return [c for c in ClientDeviceCategory if c.device_type == device_type and c.os_type == os_type]
 
 
 @dataclass
@@ -678,12 +690,14 @@ class BaseClientInfo:
     online: bool
     os_type: int
     device_type: int
-    last_conn_ts: Optional[int]
+    last_conn_ts: int | None
     last_conn_interface: ClientInterface
-    amesh_info: Optional[ClientAmeshInfo] = None
+    amesh_info: ClientAmeshInfo | None = None
 
     @property
-    def last_conn_datetime(self) -> datetime:
+    def last_conn_datetime(self) -> datetime | None:
+        if self.last_conn_ts is None:
+            return None
         return datetime.fromtimestamp(self.last_conn_ts)
 
     @property
@@ -698,26 +712,27 @@ class BaseClientInfo:
 @dataclass(kw_only=True)
 class ClientInfo(BaseClientInfo):
     """Detailed info about a single client."""
+
     ipaddr: str
     interface: ClientInterface
-    op_mode: Optional[ClientOperationMode]
-    rssi: Optional[int]
-    ip_method: Optional[ClientIpMethod]
+    op_mode: ClientOperationMode | None
+    rssi: int | None
+    ip_method: ClientIpMethod | None
     internet_mode: ClientInternetMode
     internet_state: ClientInternetState
-    traffic_stats: Optional[TrafficStats] = None
-    throughput_info: Optional[ThroughputInfo] = None
-    conn_time: Optional[str] = None
+    traffic_stats: TrafficStats | None = None
+    throughput_info: ThroughputInfo | None = None
+    conn_time: str | None = None
 
     @property
-    def conn_ts(self) -> Optional[int]:
+    def conn_ts(self) -> int | None:
         if self.conn_time is None:
             return None
         h, m, s = map(int, self.conn_time.split(":"))
         return h * 3600 + m * 60 + s
 
     @property
-    def rssi_strength(self) -> Optional[RssiStrength]:
+    def rssi_strength(self) -> RssiStrength | None:
         if self.rssi is None:
             return None
 

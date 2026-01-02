@@ -1,5 +1,4 @@
 import re
-from typing import Optional
 
 MAC_REGEX = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
 
@@ -40,12 +39,12 @@ def safe_int(value):
         return 0
 
 
-def int_or_none(s: Optional[str]) -> Optional[int]:
+def int_or_none(s: str | None) -> int | None:
     st = trim_to_none(s)
     return safe_int(st) if st else None
 
 
-def trim_to_none(s) -> Optional[str]:
+def trim_to_none(s) -> str | None:
     """
     Trims leading/trailing whitespace from a string and converts empty strings to None.
     """
