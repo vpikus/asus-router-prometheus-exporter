@@ -54,13 +54,24 @@ src/asus_router_exporter/
 │   ├── exceptions.py         # Custom exception classes
 │   └── protocols.py          # Protocol (interface) definitions
 ├── collectors/
+│   ├── __init__.py           # Exports DEFAULT_COLLECTORS list
 │   ├── base.py               # Abstract base collector class
-│   └── cpu.py                # CPU metrics collector (proof of concept)
+│   ├── cpu.py                # CPU temperature and usage metrics
+│   ├── memory.py             # Memory usage metrics
+│   ├── netdev.py             # Network device throughput metrics
+│   ├── wan.py                # WAN connection and dual-WAN metrics
+│   ├── wireless.py           # Wireless band and WiFi metrics
+│   ├── ports.py              # Ethernet port status metrics
+│   ├── clients.py            # Connected client metrics
+│   └── router_info.py        # Router info, uptime, firmware metrics
 ├── server/
 │   └── exporter.py           # HTTP server and collection loop
-├── client/                   # (future) Router client wrapper
-├── metrics/                  # (future) Metric definitions
-└── utils/                    # (future) Shared utilities
+├── client/
+│   ├── router_client.py      # Router HTTP client with auto re-auth
+│   └── models.py             # Data models for router responses
+└── utils/
+    ├── logging.py            # Sensitive data masking formatter
+    └── parsing.py            # Parsing helpers
 ```
 
 **Key Design Patterns:**
@@ -84,6 +95,12 @@ src/asus_router_exporter/
    - `BaseCollector`: Abstract class with common functionality
    - Each collector handles specific metric category
    - Enable/disable via configuration
+   - Stale metric cleanup when interfaces/clients disappear
+
+5. **Router Client** (`client/router_client.py`)
+   - Auto re-authentication on session expiry (HTTP 401/403)
+   - Session management with `close()` method
+   - urllib3 retries disabled to allow application-level retry control
 
 **Collector Pattern:**
 ```python
@@ -97,9 +114,10 @@ class CPUCollector(BaseCollector):
             ["product_id"],
             registry=self._registry,
         )
-        self._register_metric(self._usage)
+        self._register_metric(self._usage)  # Register for automatic cleanup
 
     def _collect_metrics(self, router_client, router_info):
+        # Always use getattr() for safe fallback when router is unreachable
         product_id = getattr(router_info, 'product_id', 'unknown')
         usage = router_client.get_cpu_usage()
         self._usage.labels(product_id=product_id).set(usage)
@@ -118,6 +136,7 @@ class CPUCollector(BaseCollector):
 - `BaseCollector`: Abstract base for all metric collectors
 - `Exporter`: HTTP server and collection loop manager
 - `CompositeErrorHandler`: Combined retry + circuit breaker
+- `RouterClientFactory`: Creates authenticated router client instances with auto re-authentication
 
 ## Configuration
 
@@ -200,8 +219,10 @@ class MemoryCollector(BaseCollector):
         )
 
     def _collect_metrics(self, router_client, router_info):
+        # Always use getattr() for router_info fields for safe fallback
+        product_id = getattr(router_info, 'product_id', 'unknown')
         mem = router_client.get_memory_usage()
-        self._usage.labels(product_id=router_info.product_id).set(mem.used)
+        self._usage.labels(product_id=product_id).set(mem.used)
 ```
 
 ## Logging
