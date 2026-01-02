@@ -332,6 +332,7 @@ class WanState(IntEnum):
     IDLE = 0
     CONNECTING = 1
     CONNECTED = 2
+    DISCONNECTED = 3
     ERROR = 4
     DISABLED = 5
 
