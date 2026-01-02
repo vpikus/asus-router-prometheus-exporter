@@ -3,14 +3,15 @@ Tests for asus_router_utils module.
 """
 
 import pytest
+
 from asus_router_exporter.utils.parsing import (
+    ids_for,
+    int_or_none,
     is_valid_mac,
     parse_hex,
-    ids_for,
     safe_int,
-    int_or_none,
-    trim_to_none,
     to_bool,
+    trim_to_none,
 )
 
 

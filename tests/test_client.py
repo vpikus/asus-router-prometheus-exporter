@@ -2,43 +2,43 @@
 Tests for asus_router_client module.
 """
 
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock
 import requests
 
 from asus_router_exporter.client import RouterClient, RouterClientFactory
-from asus_router_exporter.core.exceptions import AuthenticationError
 from asus_router_exporter.client.models import (
+    DualWanOrigin,
+    LinkInternet,
+    PortCapability,
     SwMode,
-    WifiBand,
+    WanAuxState,
+    WanMode,
     WanState,
     WanSubState,
-    WanAuxState,
-    LinkInternet,
-    WanMode,
-    DualWanOrigin,
-    PortCapability,
+    WifiBand,
 )
-
+from asus_router_exporter.core.exceptions import AuthenticationError
 from tests.fixtures import (
-    MEMORY_USAGE_RESPONSE,
-    CPU_USAGE_RESPONSE,
-    NETDEV_RESPONSE,
-    UPTIME_RESPONSE,
     CORE_TEMP_RESPONSE,
-    WL_NBAND_INFO_RESPONSE,
-    GET_WAN_UNIT_RESPONSE,
-    SW_MODE_NVRAM_RESPONSE,
+    CPU_USAGE_RESPONSE,
     DUAL_WAN_NVRAM_RESPONSE,
-    WAN_STATE_NVRAM_RESPONSE,
-    LINK_INTERNET_NVRAM_RESPONSE,
-    PORT_STATUS_RESPONSE,
-    UI_SUPPORT_RESPONSE,
-    GET_CLIENTLIST_RESPONSE,
     GET_CLIENTLIST_DB_RESPONSE,
-    SHOW_USB_PATH_RESPONSE,
-    LOGIN_SUCCESS_RESPONSE,
+    GET_CLIENTLIST_RESPONSE,
+    GET_WAN_UNIT_RESPONSE,
+    LINK_INTERNET_NVRAM_RESPONSE,
     LOGIN_ERROR_RESPONSE,
+    LOGIN_SUCCESS_RESPONSE,
+    MEMORY_USAGE_RESPONSE,
+    NETDEV_RESPONSE,
+    PORT_STATUS_RESPONSE,
+    SHOW_USB_PATH_RESPONSE,
+    SW_MODE_NVRAM_RESPONSE,
+    UI_SUPPORT_RESPONSE,
+    UPTIME_RESPONSE,
+    WAN_STATE_NVRAM_RESPONSE,
+    WL_NBAND_INFO_RESPONSE,
 )
 
 

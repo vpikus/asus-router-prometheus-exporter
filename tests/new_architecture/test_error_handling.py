@@ -24,6 +24,12 @@ from asus_router_exporter.core.exceptions import (
 )
 
 
+class SimulatedError(Exception):
+    """Specific exception for testing error handling."""
+
+    pass
+
+
 class TestRetryHandler:
     """Tests for RetryHandler."""
 
@@ -42,7 +48,7 @@ class TestRetryHandler:
             initial_delay=0.01,
             backoff_factor=1.0
         ))
-        mock_func = Mock(side_effect=[Exception("fail"), Exception("fail"), "success"])
+        mock_func = Mock(side_effect=[SimulatedError("fail"), SimulatedError("fail"), "success"])
 
         result = handler.execute(mock_func)
 
@@ -81,7 +87,7 @@ class TestRetryHandler:
                 max_delay=10.0
             ))
             mock_func = Mock(side_effect=[
-                Exception(), Exception(), Exception(), "success"
+                SimulatedError(), SimulatedError(), SimulatedError(), "success"
             ])
 
             handler.execute(mock_func)
@@ -100,7 +106,7 @@ class TestRetryHandler:
                 max_delay=5.0
             ))
             mock_func = Mock(side_effect=[
-                Exception(), Exception(), Exception(), Exception(), "success"
+                SimulatedError(), SimulatedError(), SimulatedError(), SimulatedError(), "success"
             ])
 
             handler.execute(mock_func)
@@ -146,8 +152,8 @@ class TestCircuitBreaker:
         ))
 
         for _ in range(3):
-            with pytest.raises(Exception):
-                breaker.execute(Mock(side_effect=Exception()))
+            with pytest.raises(SimulatedError):
+                breaker.execute(Mock(side_effect=SimulatedError()))
 
         assert breaker.state == CircuitState.OPEN
 
@@ -158,8 +164,8 @@ class TestCircuitBreaker:
         ))
 
         # Trigger open state
-        with pytest.raises(Exception):
-            breaker.execute(Mock(side_effect=Exception()))
+        with pytest.raises(SimulatedError):
+            breaker.execute(Mock(side_effect=SimulatedError()))
 
         assert breaker.state == CircuitState.OPEN
 
@@ -174,8 +180,8 @@ class TestCircuitBreaker:
         ))
 
         # Trigger open state
-        with pytest.raises(Exception):
-            breaker.execute(Mock(side_effect=Exception()))
+        with pytest.raises(SimulatedError):
+            breaker.execute(Mock(side_effect=SimulatedError()))
 
         assert breaker.state == CircuitState.OPEN
 
@@ -194,8 +200,8 @@ class TestCircuitBreaker:
         ))
 
         # Trigger open state
-        with pytest.raises(Exception):
-            breaker.execute(Mock(side_effect=Exception()))
+        with pytest.raises(SimulatedError):
+            breaker.execute(Mock(side_effect=SimulatedError()))
 
         time.sleep(0.02)
 
@@ -211,14 +217,14 @@ class TestCircuitBreaker:
         ))
 
         # Trigger open state
-        with pytest.raises(Exception):
-            breaker.execute(Mock(side_effect=Exception()))
+        with pytest.raises(SimulatedError):
+            breaker.execute(Mock(side_effect=SimulatedError()))
 
         time.sleep(0.02)
 
         # Failed execution should reopen the circuit
-        with pytest.raises(Exception):
-            breaker.execute(Mock(side_effect=Exception()))
+        with pytest.raises(SimulatedError):
+            breaker.execute(Mock(side_effect=SimulatedError()))
 
         assert breaker.state == CircuitState.OPEN
 
@@ -227,8 +233,8 @@ class TestCircuitBreaker:
 
         # Should not open even after many failures
         for _ in range(10):
-            with pytest.raises(Exception):
-                breaker.execute(Mock(side_effect=Exception()))
+            with pytest.raises(SimulatedError):
+                breaker.execute(Mock(side_effect=SimulatedError()))
 
         # Should still allow execution
         result = breaker.execute(Mock(return_value="success"))
@@ -241,8 +247,8 @@ class TestCircuitBreaker:
         ))
 
         # Trigger open state
-        with pytest.raises(Exception):
-            breaker.execute(Mock(side_effect=Exception()))
+        with pytest.raises(SimulatedError):
+            breaker.execute(Mock(side_effect=SimulatedError()))
 
         assert breaker.state == CircuitState.OPEN
 
@@ -259,8 +265,8 @@ class TestCircuitBreaker:
         ))
 
         # Trigger open state
-        with pytest.raises(Exception):
-            breaker.execute(Mock(side_effect=Exception()))
+        with pytest.raises(SimulatedError):
+            breaker.execute(Mock(side_effect=SimulatedError()))
 
         time.sleep(0.02)
 
@@ -296,7 +302,7 @@ class TestCompositeErrorHandler:
         )
 
         # Function fails then succeeds
-        mock_func = Mock(side_effect=[Exception(), "success"])
+        mock_func = Mock(side_effect=[SimulatedError(), "success"])
 
         result = handler.execute(mock_func)
 
@@ -312,7 +318,7 @@ class TestCompositeErrorHandler:
         # Multiple failures should eventually open circuit
         for _ in range(2):
             with pytest.raises(RetryExhaustedError):
-                handler.execute(Mock(side_effect=Exception()))
+                handler.execute(Mock(side_effect=SimulatedError()))
 
         # Circuit should now be open
         assert handler.circuit_breaker.state == CircuitState.OPEN

@@ -2,16 +2,17 @@
 Tests for asus_router_logging module.
 """
 
-import pytest
 import logging
 from unittest.mock import patch
 
+import pytest
+
 from asus_router_exporter.utils.logging import (
-    mask_sensitive_data,
     SensitiveFormatter,
-    _mask_string,
     _mask_ip,
     _mask_mac,
+    _mask_string,
+    mask_sensitive_data,
 )
 
 
