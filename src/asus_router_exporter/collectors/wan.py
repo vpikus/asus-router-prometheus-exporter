@@ -115,13 +115,9 @@ class WANCollector(BaseCollector):
         )
         self._register_metric(self._wan_active)
 
-    def _collect_metrics(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def _collect_metrics(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """Collect WAN metrics from router."""
-        product_id = getattr(router_info, 'product_id', 'unknown')
+        product_id = getattr(router_info, "product_id", "unknown")
 
         try:
             wan_info = router_client.get_network_wan_info()
@@ -130,13 +126,13 @@ class WANCollector(BaseCollector):
             return
 
         # Dual WAN settings (accessed through dual_wan_info)
-        dual_wan_info = getattr(wan_info, 'dual_wan_info', None)
-        dualwan_enabled = getattr(dual_wan_info, 'enabled', False) if dual_wan_info else False
+        dual_wan_info = getattr(wan_info, "dual_wan_info", None)
+        dualwan_enabled = getattr(dual_wan_info, "enabled", False) if dual_wan_info else False
         self._dualwan_enabled.labels(product_id=product_id).set(1 if dualwan_enabled else 0)
 
         # Dual WAN mode (one-hot) - accessed through dual_wan_info.wans_mode
         if dual_wan_info:
-            dualwan_mode = getattr(dual_wan_info, 'wans_mode', None)
+            dualwan_mode = getattr(dual_wan_info, "wans_mode", None)
             if dualwan_mode:
                 self._set_onehot_dualwan_mode(product_id, dualwan_mode)
             else:
@@ -145,17 +141,17 @@ class WANCollector(BaseCollector):
             self._zero_onehot_dualwan_mode(product_id)
 
         # Link internet status
-        link_internet = getattr(wan_info, 'link_internet', None)
+        link_internet = getattr(wan_info, "link_internet", None)
         if link_internet is not None:
             # link_internet could be an enum or bool
-            if hasattr(link_internet, 'value'):
+            if hasattr(link_internet, "value"):
                 self._link_internet.labels(product_id=product_id).set(1 if link_internet.value else 0)
             else:
                 self._link_internet.labels(product_id=product_id).set(1 if link_internet else 0)
 
         # WAN units (primary and secondary)
-        primary_wan = getattr(wan_info, 'primary_wan', None)
-        secondary_wan = getattr(wan_info, 'secondary_wan', None)
+        primary_wan = getattr(wan_info, "primary_wan", None)
+        secondary_wan = getattr(wan_info, "secondary_wan", None)
 
         if primary_wan:
             self._collect_wan_unit_metrics(product_id, "0", primary_wan)
@@ -172,46 +168,38 @@ class WANCollector(BaseCollector):
     def _collect_wan_unit_metrics(self, product_id: str, unit: str, wan_unit: Any) -> None:
         """Collect metrics for a single WAN unit."""
         # Get connection_info which contains state, substate, auxstate
-        connection_info = getattr(wan_unit, 'connection_info', None)
+        connection_info = getattr(wan_unit, "connection_info", None)
 
         if connection_info:
             # State (one-hot)
-            state = getattr(connection_info, 'state', None)
+            state = getattr(connection_info, "state", None)
             if state is not None:
-                self._set_onehot_enum(
-                    self._wan_state, product_id, unit, state, "state", "WanState"
-                )
+                self._set_onehot_enum(self._wan_state, product_id, unit, state, "state", "WanState")
 
             # Substate (one-hot)
-            substate = getattr(connection_info, 'substate', None)
+            substate = getattr(connection_info, "substate", None)
             if substate is not None:
-                self._set_onehot_enum(
-                    self._wan_substate, product_id, unit, substate, "substate", "WanSubState"
-                )
+                self._set_onehot_enum(self._wan_substate, product_id, unit, substate, "substate", "WanSubState")
 
             # Auxstate (one-hot)
-            auxstate = getattr(connection_info, 'auxstate', None)
+            auxstate = getattr(connection_info, "auxstate", None)
             if auxstate is not None:
-                self._set_onehot_enum(
-                    self._wan_auxstate, product_id, unit, auxstate, "auxstate", "WanAuxState"
-                )
+                self._set_onehot_enum(self._wan_auxstate, product_id, unit, auxstate, "auxstate", "WanAuxState")
 
             # Online status (derived from connection_info.is_connected)
-            online = getattr(connection_info, 'is_connected', False)
+            online = getattr(connection_info, "is_connected", False)
             self._wan_online.labels(product_id=product_id, unit=unit).set(1 if online else 0)
         else:
             # No connection_info available, set online to 0
             self._wan_online.labels(product_id=product_id, unit=unit).set(0)
 
         # WAN status (one-hot) - status is directly on WanInfo, type is WanStatus
-        status = getattr(wan_unit, 'status', None)
+        status = getattr(wan_unit, "status", None)
         if status is not None:
-            self._set_onehot_enum(
-                self._wan_status, product_id, unit, status, "status", "WanStatus"
-            )
+            self._set_onehot_enum(self._wan_status, product_id, unit, status, "status", "WanStatus")
 
         # Active
-        active = getattr(wan_unit, 'active', False)
+        active = getattr(wan_unit, "active", False)
         self._wan_active.labels(product_id=product_id, unit=unit).set(1 if active else 0)
 
     def _set_onehot_dualwan_mode(self, product_id: str, current_mode: Any) -> None:
@@ -239,14 +227,7 @@ class WANCollector(BaseCollector):
         self._wan_online.labels(product_id=product_id, unit=unit).set(0)
         self._wan_active.labels(product_id=product_id, unit=unit).set(0)
 
-    def _zero_onehot_enum(
-        self,
-        gauge: Gauge,
-        product_id: str,
-        unit: str,
-        label_name: str,
-        enum_name: str
-    ) -> None:
+    def _zero_onehot_enum(self, gauge: Gauge, product_id: str, unit: str, label_name: str, enum_name: str) -> None:
         """Zero out all values for a one-hot enum."""
         enum_class = getattr(client_models, enum_name, None)
         if enum_class:
@@ -254,13 +235,7 @@ class WANCollector(BaseCollector):
                 gauge.labels(product_id=product_id, unit=unit, **{label_name: enum_val.name}).set(0)
 
     def _set_onehot_enum(
-        self,
-        gauge: Gauge,
-        product_id: str,
-        unit: str,
-        current_value: Any,
-        label_name: str,
-        enum_name: str
+        self, gauge: Gauge, product_id: str, unit: str, current_value: Any, label_name: str, enum_name: str
     ) -> None:
         """Set one-hot encoding for an enum value."""
         enum_class = getattr(client_models, enum_name, None)

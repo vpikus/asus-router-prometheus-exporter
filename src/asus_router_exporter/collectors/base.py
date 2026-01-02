@@ -72,7 +72,7 @@ class BaseCollector(ABC):
         self._config = config
         self._metrics: list[MetricWrapperBase] = []
         self._collector_config = config.get_collector_config(self.name)
-        self._enabled: bool = bool(self._collector_config.get('enabled', True))
+        self._enabled: bool = bool(self._collector_config.get("enabled", True))
 
         if self._enabled:
             self._create_metrics()
@@ -85,11 +85,7 @@ class BaseCollector(ABC):
         """Check if collector is enabled."""
         return self._enabled
 
-    def collect(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def collect(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """
         Collect metrics from router.
 
@@ -127,11 +123,7 @@ class BaseCollector(ABC):
         pass
 
     @abstractmethod
-    def _collect_metrics(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def _collect_metrics(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """
         Collect and update metrics.
 
@@ -158,17 +150,13 @@ class BaseCollector(ABC):
         """
         try:
             # For metrics with labels, clear all label values
-            if hasattr(metric, '_metrics'):
+            if hasattr(metric, "_metrics"):
                 metric._metrics.clear()
             # For simple metrics without labels
-            elif hasattr(metric, '_value'):
+            elif hasattr(metric, "_value"):
                 metric._value.set(0)
         except Exception as e:
-            logger.warning(
-                "Failed to clear metric in collector '%s': %s",
-                self.name,
-                str(e)
-            )
+            logger.warning("Failed to clear metric in collector '%s': %s", self.name, str(e))
 
     def _register_metric(self, metric: MetricWrapperBase) -> MetricWrapperBase:
         """
@@ -244,12 +232,7 @@ class LabeledMetricsMixin:
         """
         self._active_labels[metric_name] = current_labels
 
-    def _remove_stale_metrics(
-        self,
-        metric: Any,
-        metric_name: str,
-        current_labels: set
-    ) -> None:
+    def _remove_stale_metrics(self, metric: Any, metric_name: str, current_labels: set) -> None:
         """
         Remove metrics for stale label combinations.
 
@@ -263,10 +246,5 @@ class LabeledMetricsMixin:
             try:
                 metric.remove(*labels)
             except Exception as e:
-                logger.debug(
-                    "Could not remove stale labels %s from %s: %s",
-                    labels,
-                    metric_name,
-                    str(e)
-                )
+                logger.debug("Could not remove stale labels %s from %s: %s", labels, metric_name, str(e))
         self._update_active_labels(metric_name, current_labels)

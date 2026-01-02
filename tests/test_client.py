@@ -52,6 +52,7 @@ def create_mock_response(text, status_code=200):
 
     def json_side_effect():
         import json
+
         return json.loads(text)
 
     response.json = json_side_effect
@@ -83,7 +84,7 @@ class TestRouterClientFactory:
         factory = RouterClientFactory("http://192.168.1.1/")
         assert factory.host == "http://192.168.1.1"
 
-    @patch('asus_router_exporter.client.router_client.requests.Session')
+    @patch("asus_router_exporter.client.router_client.requests.Session")
     def test_factory_auth_success(self, mock_session_class):
         mock_session = Mock()
         mock_session_class.return_value = mock_session
@@ -165,9 +166,9 @@ class TestRouterClientGetNetdev:
 
         netdev = client.get_netdev()
 
-        assert netdev.bridge.total_download_bytes == 0x78023dfa
-        assert netdev.bridge.total_upload_bytes == 0x1e2a5ad36
-        assert netdev.wired.total_download_bytes == 0x1efd44512
+        assert netdev.bridge.total_download_bytes == 0x78023DFA
+        assert netdev.bridge.total_upload_bytes == 0x1E2A5AD36
+        assert netdev.wired.total_download_bytes == 0x1EFD44512
         assert "" in netdev.internet  # INTERNET_rx/tx
         assert "1" in netdev.internet  # INTERNET1_rx/tx
         assert "0" in netdev.wireless  # WIRELESS0_rx/tx

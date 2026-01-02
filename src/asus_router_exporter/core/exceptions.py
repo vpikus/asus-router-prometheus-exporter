@@ -7,21 +7,25 @@ from __future__ import annotations
 
 class ExporterError(Exception):
     """Base exception for all exporter errors."""
+
     pass
 
 
 class ConfigurationError(ExporterError):
     """Raised when there's a configuration error."""
+
     pass
 
 
 class AuthenticationError(ExporterError):
     """Raised when authentication with the router fails."""
+
     pass
 
 
 class RouterConnectionError(ExporterError):
     """Raised when connection to the router fails."""
+
     pass
 
 

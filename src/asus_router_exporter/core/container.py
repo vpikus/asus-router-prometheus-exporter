@@ -184,11 +184,7 @@ class Container:
                 self._collectors.append(collector)
                 logger.info("Initialized collector: %s", collector.name)
             except Exception as e:
-                logger.error(
-                    "Failed to initialize collector %s: %s",
-                    collector_class.name,
-                    e
-                )
+                logger.error("Failed to initialize collector %s: %s", collector_class.name, e)
 
         self._initialized = True
         logger.info("Container initialized with %d collectors", len(self._collectors))
@@ -205,20 +201,12 @@ class Container:
                 try:
                     collector.collect(self.router_client, router_info)
                 except Exception as e:
-                    logger.error(
-                        "Collector %s failed: %s",
-                        collector.name,
-                        e
-                    )
+                    logger.error("Collector %s failed: %s", collector.name, e)
                     # Clear this collector's metrics to avoid stale data
                     try:
                         collector._clear_metrics()
                     except Exception as clear_err:
-                        logger.warning(
-                            "Failed to clear metrics for %s: %s",
-                            collector.name,
-                            clear_err
-                        )
+                        logger.warning("Failed to clear metrics for %s: %s", collector.name, clear_err)
 
     def clear_all_metrics(self) -> None:
         """Clear metrics from all collectors to avoid stale data."""
@@ -226,11 +214,7 @@ class Container:
             try:
                 collector._clear_metrics()
             except Exception as e:
-                logger.warning(
-                    "Failed to clear metrics for %s: %s",
-                    collector.name,
-                    e
-                )
+                logger.warning("Failed to clear metrics for %s: %s", collector.name, e)
 
     def cleanup(self) -> None:
         """Clean up all collectors and resources."""
@@ -238,11 +222,7 @@ class Container:
             try:
                 collector.cleanup()
             except Exception as e:
-                logger.warning(
-                    "Failed to cleanup collector %s: %s",
-                    collector.name,
-                    e
-                )
+                logger.warning("Failed to cleanup collector %s: %s", collector.name, e)
         self._collectors = []
         self._initialized = False
         logger.info("Container cleaned up")
@@ -261,8 +241,8 @@ class Container:
         # Import here to avoid circular imports
         from ..client.router_client import RouterClientFactory
 
-        host = self._config.get('router.host', '192.168.1.1')
-        auth = self._config.get('router.auth', '')
+        host = self._config.get("router.host", "192.168.1.1")
+        auth = self._config.get("router.auth", "")
 
         factory = RouterClientFactory(host)
         return factory.auth(auth)  # type: ignore[return-value]

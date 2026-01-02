@@ -86,15 +86,11 @@ class PortsCollector(BaseCollector):
         )
         self._register_metric(self._port_info)
 
-    def _collect_metrics(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def _collect_metrics(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """Collect port metrics from router."""
-        product_id = getattr(router_info, 'product_id', 'unknown')
+        product_id = getattr(router_info, "product_id", "unknown")
 
-        ports_info = getattr(router_info, 'ports_info', None)
+        ports_info = getattr(router_info, "ports_info", None)
         if not ports_info:
             logger.debug("[%s] No port info available", product_id)
             return
@@ -106,40 +102,38 @@ class PortsCollector(BaseCollector):
 
     def _collect_port_metrics(self, product_id: str, port_info: Any) -> None:
         """Collect metrics for a single port."""
-        port_id = getattr(port_info, 'id', 'unknown')
+        port_id = getattr(port_info, "id", "unknown")
 
         # Plugged status
-        plugged = getattr(port_info, 'plugged', False)
+        plugged = getattr(port_info, "plugged", False)
         self._plugged.labels(product_id=product_id, port_id=port_id).set(1 if plugged else 0)
 
         # Link rate
-        link_rate = getattr(port_info, 'current_speed_rate_mbps', 0) or 0
+        link_rate = getattr(port_info, "current_speed_rate_mbps", 0) or 0
         self._link_rate.labels(product_id=product_id, port_id=port_id).set(link_rate)
 
         # Max rate
-        max_rate = getattr(port_info, 'max_supported_speed_rate_mbps', 0) or 0
+        max_rate = getattr(port_info, "max_supported_speed_rate_mbps", 0) or 0
         self._max_rate.labels(product_id=product_id, port_id=port_id).set(max_rate)
 
         # Slow speed
-        slow_speed = getattr(port_info, 'is_slow_speed', False)
+        slow_speed = getattr(port_info, "is_slow_speed", False)
         self._slow_speed.labels(product_id=product_id, port_id=port_id).set(1 if slow_speed else 0)
 
         # Port group (one-hot)
-        port_group = getattr(port_info, 'group', None)
+        port_group = getattr(port_info, "group", None)
         if port_group:
             self._set_onehot_port_group(product_id, port_id, port_group)
 
         # Port info
-        self._port_info.labels(product_id=product_id, port_id=port_id).info({
-            "special_port_name": getattr(port_info, 'special_port_name', ''),
-        })
+        self._port_info.labels(product_id=product_id, port_id=port_id).info(
+            {
+                "special_port_name": getattr(port_info, "special_port_name", ""),
+            }
+        )
 
     def _set_onehot_port_group(self, product_id: str, port_id: str, current_group: Any) -> None:
         """Set one-hot encoding for port group."""
         for group in PortGroup:
             value = 1 if group == current_group else 0
-            self._port_group.labels(
-                product_id=product_id,
-                port_id=port_id,
-                port_group=group.name
-            ).set(value)
+            self._port_group.labels(product_id=product_id, port_id=port_id, port_group=group.name).set(value)

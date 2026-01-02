@@ -81,13 +81,9 @@ class CPUCollector(BaseCollector):
         )
         self._register_metric(self._usage_percent)
 
-    def _collect_metrics(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def _collect_metrics(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """Collect CPU metrics from router."""
-        product_id = getattr(router_info, 'product_id', 'unknown')
+        product_id = getattr(router_info, "product_id", "unknown")
 
         # Collect temperature
         self._collect_temperature(router_client, product_id)
@@ -95,25 +91,17 @@ class CPUCollector(BaseCollector):
         # Collect usage metrics
         self._collect_usage(router_client, product_id)
 
-    def _collect_temperature(
-        self,
-        router_client: RouterClientProtocol,
-        product_id: str
-    ) -> None:
+    def _collect_temperature(self, router_client: RouterClientProtocol, product_id: str) -> None:
         """Collect CPU temperature."""
         try:
             temp_info = router_client.get_core_temp()
-            if temp_info and hasattr(temp_info, 'cpu'):
+            if temp_info and hasattr(temp_info, "cpu"):
                 self._temperature.labels(product_id=product_id).set(temp_info.cpu)
                 logger.debug("[%s] CPU temperature: %.1f°C", product_id, temp_info.cpu)
         except Exception as e:
             logger.warning("[%s] CPU temperature collection failed: %s", product_id, e)
 
-    def _collect_usage(
-        self,
-        router_client: RouterClientProtocol,
-        product_id: str
-    ) -> None:
+    def _collect_usage(self, router_client: RouterClientProtocol, product_id: str) -> None:
         """Collect CPU usage metrics."""
         try:
             cpu_infos = router_client.get_cpu_usage()
@@ -127,15 +115,10 @@ class CPUCollector(BaseCollector):
 
         logger.debug("[%s] CPU metrics collected: %d CPUs", product_id, len(cpu_infos))
 
-    def _process_cpu_sample(
-        self,
-        product_id: str,
-        cpu_id: str,
-        cpu_info: Any
-    ) -> None:
+    def _process_cpu_sample(self, product_id: str, cpu_id: str, cpu_info: Any) -> None:
         """Process a single CPU sample and update metrics."""
-        usage = getattr(cpu_info, 'usage', 0)
-        total = getattr(cpu_info, 'total', 0)
+        usage = getattr(cpu_info, "usage", 0)
+        total = getattr(cpu_info, "total", 0)
 
         # Use composite key to support multiple routers
         sample_key = f"{product_id}:{cpu_id}"
@@ -147,34 +130,23 @@ class CPUCollector(BaseCollector):
             delta_total = self._calculate_delta(total, prev["total"])
 
             # Update counters with deltas
-            self._usage_counter.labels(
-                product_id=product_id, cpu_id=cpu_id
-            ).inc(max(0, delta_usage))
+            self._usage_counter.labels(product_id=product_id, cpu_id=cpu_id).inc(max(0, delta_usage))
 
-            self._total_counter.labels(
-                product_id=product_id, cpu_id=cpu_id
-            ).inc(max(0, delta_total))
+            self._total_counter.labels(product_id=product_id, cpu_id=cpu_id).inc(max(0, delta_total))
 
             # Calculate and set percentage (clamped to [0, 100])
             if delta_total > 0:
                 percent = max(0.0, min(100.0, (delta_usage / delta_total) * 100.0))
-                self._usage_percent.labels(
-                    product_id=product_id, cpu_id=cpu_id
-                ).set(percent)
+                self._usage_percent.labels(product_id=product_id, cpu_id=cpu_id).set(percent)
                 logger.debug(
-                    "[%s] CPU %s: usage Δ=%d, total Δ=%d, %.1f%%",
-                    product_id, cpu_id, delta_usage, delta_total, percent
+                    "[%s] CPU %s: usage Δ=%d, total Δ=%d, %.1f%%", product_id, cpu_id, delta_usage, delta_total, percent
                 )
             else:
                 # No time elapsed, set to NaN
-                self._usage_percent.labels(
-                    product_id=product_id, cpu_id=cpu_id
-                ).set(float("nan"))
+                self._usage_percent.labels(product_id=product_id, cpu_id=cpu_id).set(float("nan"))
         else:
             # First sample, set percentage to NaN
-            self._usage_percent.labels(
-                product_id=product_id, cpu_id=cpu_id
-            ).set(float("nan"))
+            self._usage_percent.labels(product_id=product_id, cpu_id=cpu_id).set(float("nan"))
 
         # Store current sample for next iteration
         self._previous_samples[sample_key] = {"usage": usage, "total": total}
@@ -198,10 +170,7 @@ class CPUCollector(BaseCollector):
         if current >= previous:
             return current - previous
         # Counter wrapped or was reset, skip this sample
-        logger.debug(
-            "Counter wrap detected: current=%d < previous=%d, skipping",
-            current, previous
-        )
+        logger.debug("Counter wrap detected: current=%d < previous=%d, skipping", current, previous)
         return 0
 
     def cleanup(self) -> None:

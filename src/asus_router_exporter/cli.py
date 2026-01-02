@@ -30,6 +30,7 @@ def setup_logging(level: str = "INFO", mask_sensitive: bool = True) -> None:
     formatter: logging.Formatter
     if mask_sensitive:
         from .utils.logging import SensitiveFormatter
+
         formatter = SensitiveFormatter(fmt)
     else:
         formatter = logging.Formatter(fmt)
@@ -72,7 +73,7 @@ Environment variables:
   ASUS_METRICS_PORT     Metrics HTTP port (default: 8000)
   ASUS_SCRAPE_INTERVAL  Scrape interval in seconds (default: 30)
   ASUS_LOG_LEVEL        Log level (default: INFO)
-        """
+        """,
     )
 
     parser.add_argument(
@@ -138,17 +139,11 @@ def validate_args(args: argparse.Namespace) -> bool:
 
     # Otherwise, router-host and router-auth are required
     if not args.router_host:
-        print(
-            "Error: --router-host is required (or set ASUS_ROUTER_HOST env var)",
-            file=sys.stderr
-        )
+        print("Error: --router-host is required (or set ASUS_ROUTER_HOST env var)", file=sys.stderr)
         return False
 
     if not args.router_auth:
-        print(
-            "Error: --router-auth is required (or set ASUS_ROUTER_AUTH env var)",
-            file=sys.stderr
-        )
+        print("Error: --router-auth is required (or set ASUS_ROUTER_AUTH env var)", file=sys.stderr)
         return False
 
     return True

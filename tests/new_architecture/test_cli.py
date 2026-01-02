@@ -4,7 +4,7 @@ Tests for the CLI module.
 
 import sys
 
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 import argparse
 import logging
@@ -18,7 +18,7 @@ class TestSetupLogging:
     """Tests for setup_logging function."""
 
     def test_setup_logging_default_level(self):
-        with patch('logging.getLogger') as mock_get_logger:
+        with patch("logging.getLogger") as mock_get_logger:
             mock_root = MagicMock()
             mock_get_logger.return_value = mock_root
 
@@ -27,7 +27,7 @@ class TestSetupLogging:
             mock_root.setLevel.assert_called_once_with(logging.INFO)
 
     def test_setup_logging_debug_level(self):
-        with patch('logging.getLogger') as mock_get_logger:
+        with patch("logging.getLogger") as mock_get_logger:
             mock_root = MagicMock()
             mock_get_logger.return_value = mock_root
 
@@ -36,7 +36,7 @@ class TestSetupLogging:
             mock_root.setLevel.assert_called_once_with(logging.DEBUG)
 
     def test_setup_logging_warning_level(self):
-        with patch('logging.getLogger') as mock_get_logger:
+        with patch("logging.getLogger") as mock_get_logger:
             mock_root = MagicMock()
             mock_get_logger.return_value = mock_root
 
@@ -45,7 +45,7 @@ class TestSetupLogging:
             mock_root.setLevel.assert_called_once_with(logging.WARNING)
 
     def test_setup_logging_error_level(self):
-        with patch('logging.getLogger') as mock_get_logger:
+        with patch("logging.getLogger") as mock_get_logger:
             mock_root = MagicMock()
             mock_get_logger.return_value = mock_root
 
@@ -54,7 +54,7 @@ class TestSetupLogging:
             mock_root.setLevel.assert_called_once_with(logging.ERROR)
 
     def test_setup_logging_case_insensitive(self):
-        with patch('logging.getLogger') as mock_get_logger:
+        with patch("logging.getLogger") as mock_get_logger:
             mock_root = MagicMock()
             mock_get_logger.return_value = mock_root
 
@@ -63,11 +63,11 @@ class TestSetupLogging:
             mock_root.setLevel.assert_called_once_with(logging.INFO)
 
     def test_setup_logging_with_masking(self):
-        with patch('logging.getLogger') as mock_get_logger:
+        with patch("logging.getLogger") as mock_get_logger:
             mock_root = MagicMock()
             mock_get_logger.return_value = mock_root
 
-            with patch('asus_router_exporter.utils.logging.SensitiveFormatter') as mock_formatter_cls:
+            with patch("asus_router_exporter.utils.logging.SensitiveFormatter") as mock_formatter_cls:
                 mock_formatter = MagicMock()
                 mock_formatter_cls.return_value = mock_formatter
 
@@ -76,11 +76,11 @@ class TestSetupLogging:
                 mock_formatter_cls.assert_called_once()
 
     def test_setup_logging_without_masking(self):
-        with patch('logging.getLogger') as mock_get_logger:
+        with patch("logging.getLogger") as mock_get_logger:
             mock_root = MagicMock()
             mock_get_logger.return_value = mock_root
 
-            with patch('logging.Formatter') as mock_formatter_cls:
+            with patch("logging.Formatter") as mock_formatter_cls:
                 mock_formatter = MagicMock()
                 mock_formatter_cls.return_value = mock_formatter
 
@@ -153,12 +153,18 @@ class TestParseArgs:
             assert args.router_host == "10.0.0.1"
 
     def test_parse_args_multiple_options(self):
-        args = parse_args([
-            "--router-host", "10.0.0.1",
-            "--router-auth", "token",
-            "--metrics-port", "9100",
-            "--log-level", "DEBUG",
-        ])
+        args = parse_args(
+            [
+                "--router-host",
+                "10.0.0.1",
+                "--router-auth",
+                "token",
+                "--metrics-port",
+                "9100",
+                "--log-level",
+                "DEBUG",
+            ]
+        )
         assert args.router_host == "10.0.0.1"
         assert args.router_auth == "token"
         assert args.metrics_port == 9100
@@ -225,23 +231,27 @@ class TestValidateArgs:
 class TestMain:
     """Tests for main function."""
 
-    @patch('asus_router_exporter.cli.create_exporter')
-    @patch('asus_router_exporter.cli.setup_logging')
+    @patch("asus_router_exporter.cli.create_exporter")
+    @patch("asus_router_exporter.cli.setup_logging")
     def test_main_success(self, mock_setup_logging, mock_create_exporter):
         mock_exporter = MagicMock()
         mock_create_exporter.return_value = mock_exporter
 
-        result = main([
-            "--router-host", "192.168.1.1",
-            "--router-auth", "token",
-        ])
+        result = main(
+            [
+                "--router-host",
+                "192.168.1.1",
+                "--router-auth",
+                "token",
+            ]
+        )
 
         assert result == 0
         mock_create_exporter.assert_called_once()
         mock_exporter.run.assert_called_once()
 
-    @patch('asus_router_exporter.cli.create_exporter')
-    @patch('asus_router_exporter.cli.setup_logging')
+    @patch("asus_router_exporter.cli.create_exporter")
+    @patch("asus_router_exporter.cli.setup_logging")
     def test_main_with_config(self, mock_setup_logging, mock_create_exporter):
         mock_exporter = MagicMock()
         mock_create_exporter.return_value = mock_exporter
@@ -256,18 +266,24 @@ class TestMain:
             metrics_port=8000,
         )
 
-    @patch('asus_router_exporter.cli.create_exporter')
-    @patch('asus_router_exporter.cli.setup_logging')
+    @patch("asus_router_exporter.cli.create_exporter")
+    @patch("asus_router_exporter.cli.setup_logging")
     def test_main_with_all_options(self, mock_setup_logging, mock_create_exporter):
         mock_exporter = MagicMock()
         mock_create_exporter.return_value = mock_exporter
 
-        result = main([
-            "--router-host", "10.0.0.1",
-            "--router-auth", "mytoken",
-            "--metrics-port", "9100",
-            "--log-level", "DEBUG",
-        ])
+        result = main(
+            [
+                "--router-host",
+                "10.0.0.1",
+                "--router-auth",
+                "mytoken",
+                "--metrics-port",
+                "9100",
+                "--log-level",
+                "DEBUG",
+            ]
+        )
 
         assert result == 0
         mock_create_exporter.assert_called_once_with(
@@ -291,43 +307,55 @@ class TestMain:
 
             assert result == 1
 
-    @patch('asus_router_exporter.cli.create_exporter')
-    @patch('asus_router_exporter.cli.setup_logging')
+    @patch("asus_router_exporter.cli.create_exporter")
+    @patch("asus_router_exporter.cli.setup_logging")
     def test_main_keyboard_interrupt(self, mock_setup_logging, mock_create_exporter):
         mock_exporter = MagicMock()
         mock_exporter.run.side_effect = KeyboardInterrupt()
         mock_create_exporter.return_value = mock_exporter
 
-        result = main([
-            "--router-host", "192.168.1.1",
-            "--router-auth", "token",
-        ])
+        result = main(
+            [
+                "--router-host",
+                "192.168.1.1",
+                "--router-auth",
+                "token",
+            ]
+        )
 
         assert result == 0
 
-    @patch('asus_router_exporter.cli.create_exporter')
-    @patch('asus_router_exporter.cli.setup_logging')
+    @patch("asus_router_exporter.cli.create_exporter")
+    @patch("asus_router_exporter.cli.setup_logging")
     def test_main_exception(self, mock_setup_logging, mock_create_exporter):
         mock_create_exporter.side_effect = RuntimeError("Connection failed")
 
-        result = main([
-            "--router-host", "192.168.1.1",
-            "--router-auth", "token",
-        ])
+        result = main(
+            [
+                "--router-host",
+                "192.168.1.1",
+                "--router-auth",
+                "token",
+            ]
+        )
 
         assert result == 1
 
-    @patch('asus_router_exporter.cli.create_exporter')
-    @patch('asus_router_exporter.cli.setup_logging')
+    @patch("asus_router_exporter.cli.create_exporter")
+    @patch("asus_router_exporter.cli.setup_logging")
     def test_main_no_mask_sensitive(self, mock_setup_logging, mock_create_exporter):
         mock_exporter = MagicMock()
         mock_create_exporter.return_value = mock_exporter
 
-        result = main([
-            "--router-host", "192.168.1.1",
-            "--router-auth", "token",
-            "--no-mask-sensitive",
-        ])
+        result = main(
+            [
+                "--router-host",
+                "192.168.1.1",
+                "--router-auth",
+                "token",
+                "--no-mask-sensitive",
+            ]
+        )
 
         assert result == 0
         mock_setup_logging.assert_called_once_with(
@@ -346,10 +374,14 @@ class TestCLIIntegration:
 
     def test_parse_and_validate_with_host_auth(self):
         """Test parsing and validating with host and auth."""
-        args = parse_args([
-            "--router-host", "192.168.1.1",
-            "--router-auth", "token",
-        ])
+        args = parse_args(
+            [
+                "--router-host",
+                "192.168.1.1",
+                "--router-auth",
+                "token",
+            ]
+        )
         assert validate_args(args) is True
 
     def test_parse_and_validate_missing_required(self):

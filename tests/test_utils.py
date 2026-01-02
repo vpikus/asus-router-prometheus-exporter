@@ -53,7 +53,7 @@ class TestParseHex:
     """Tests for parse_hex function."""
 
     def test_parse_hex_with_prefix(self):
-        assert parse_hex("0x78023dfa") == 0x78023dfa
+        assert parse_hex("0x78023dfa") == 0x78023DFA
 
     def test_parse_hex_without_prefix(self):
         assert parse_hex("ff") == 255
@@ -62,7 +62,7 @@ class TestParseHex:
         assert parse_hex("0x0") == 0
 
     def test_parse_hex_large_number(self):
-        assert parse_hex("0x1e2a5ad36") == 0x1e2a5ad36
+        assert parse_hex("0x1e2a5ad36") == 0x1E2A5AD36
 
     def test_parse_hex_uppercase(self):
         assert parse_hex("0xABCDEF") == 11259375

@@ -78,26 +78,24 @@ class RouterInfoCollector(BaseCollector):
         )
         self._register_metric(self._update_available)
 
-    def _collect_metrics(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def _collect_metrics(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """Collect router info metrics."""
-        product_id = getattr(router_info, 'product_id', 'unknown')
+        product_id = getattr(router_info, "product_id", "unknown")
 
         # Static info
-        self._info.info({
-            "product_id": product_id,
-            "firmware": f"{getattr(router_info, 'firmver', '')}_{getattr(router_info, 'extendno', '')}",
-            "serial": getattr(router_info, 'serial_no', ''),
-            "hostname": getattr(router_info, 'lan_hostname', ''),
-            "mac": getattr(router_info, 'lan_hwaddr', ''),
-        })
+        self._info.info(
+            {
+                "product_id": product_id,
+                "firmware": f"{getattr(router_info, 'firmver', '')}_{getattr(router_info, 'extendno', '')}",
+                "serial": getattr(router_info, "serial_no", ""),
+                "hostname": getattr(router_info, "lan_hostname", ""),
+                "mac": getattr(router_info, "lan_hwaddr", ""),
+            }
+        )
 
         # Uptime (with validation)
-        uptime = getattr(router_info, 'uptime', None)
-        if uptime and hasattr(uptime, 'boottime'):
+        uptime = getattr(router_info, "uptime", None)
+        if uptime and hasattr(uptime, "boottime"):
             boottime = uptime.boottime
             # Validate boottime is a reasonable positive value
             if isinstance(boottime, (int, float)) and boottime > 0:
@@ -109,19 +107,19 @@ class RouterInfoCollector(BaseCollector):
             self._uptime.labels(product_id=product_id).set(float("nan"))
 
         # Software mode (one-hot encoding)
-        sw_mode = getattr(router_info, 'sw_mode', None)
+        sw_mode = getattr(router_info, "sw_mode", None)
         if sw_mode:
             self._set_onehot_sw_mode(product_id, sw_mode)
 
         # Reboot schedule
-        reboot_schedule = getattr(router_info, 'reboot_schedule', None)
-        if reboot_schedule and getattr(reboot_schedule, 'until_ms', None) is not None:
+        reboot_schedule = getattr(router_info, "reboot_schedule", None)
+        if reboot_schedule and getattr(reboot_schedule, "until_ms", None) is not None:
             self._next_reboot.labels(product_id=product_id).set(reboot_schedule.until_ms / 1000)
         else:
             self._next_reboot.labels(product_id=product_id).set(float("nan"))
 
         # Software update
-        update_available = getattr(router_info, 'software_update_available', False)
+        update_available = getattr(router_info, "software_update_available", False)
         self._update_available.labels(product_id=product_id).set(1 if update_available else 0)
 
         logger.debug("[%s] Router info collected", product_id)

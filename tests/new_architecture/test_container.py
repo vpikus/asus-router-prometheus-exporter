@@ -4,7 +4,7 @@ Tests for the Container dependency injection module.
 
 import sys
 
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +17,7 @@ from asus_router_exporter.core.protocols import RouterClientProtocol
 
 class MockCollector:
     """Mock collector for testing."""
+
     name = "mock_collector"
 
     def __init__(self, registry=None, config=None):
@@ -39,6 +40,7 @@ class MockCollector:
 
 class MockCollectorDisabled(MockCollector):
     """Mock collector that is disabled."""
+
     name = "mock_collector_disabled"
 
     def __init__(self, registry=None, config=None):
@@ -48,6 +50,7 @@ class MockCollectorDisabled(MockCollector):
 
 class MockCollectorFailsOnCollect(MockCollector):
     """Mock collector that fails on collect."""
+
     name = "mock_collector_fails"
 
     def collect(self, client, router_info):
@@ -56,6 +59,7 @@ class MockCollectorFailsOnCollect(MockCollector):
 
 class MockCollectorFailsOnClear(MockCollector):
     """Mock collector that fails on clear."""
+
     name = "mock_collector_fails_clear"
 
     def collect(self, client, router_info):
@@ -67,14 +71,18 @@ class MockCollectorFailsOnClear(MockCollector):
 
 class MockCollectorFailsOnInit(MockCollector):
     """Mock collector that fails on initialization."""
+
     name = "mock_collector_fails_init"
 
     def __init__(self, registry=None, config=None):
+        # Intentionally not calling super().__init__() - this mock tests
+        # error handling when collector initialization fails immediately
         raise RuntimeError("Initialization failed")
 
 
 class MockCollectorFailsOnCleanup(MockCollector):
     """Mock collector that fails on cleanup."""
+
     name = "mock_collector_fails_cleanup"
 
     def cleanup(self):
@@ -106,7 +114,7 @@ class TestContainerInit:
         container = Container.from_config(None, registry)
 
         # Should have default config values
-        assert container.config.get('exporter.port') == 8000
+        assert container.config.get("exporter.port") == 8000
 
     def test_from_env_creates_container(self):
         registry = CollectorRegistry()
@@ -138,7 +146,7 @@ class TestContainerProperties:
 
         assert container.collectors == []
 
-    @patch('asus_router_exporter.core.container.CompositeErrorHandler')
+    @patch("asus_router_exporter.core.container.CompositeErrorHandler")
     def test_error_handler_lazy_creation(self, mock_error_handler_cls):
         mock_handler = MagicMock()
         mock_error_handler_cls.from_config.return_value = mock_handler
@@ -155,7 +163,7 @@ class TestContainerProperties:
         assert handler is mock_handler
         mock_error_handler_cls.from_config.assert_called_once_with(config)
 
-    @patch('asus_router_exporter.core.container.CompositeErrorHandler')
+    @patch("asus_router_exporter.core.container.CompositeErrorHandler")
     def test_error_handler_cached(self, mock_error_handler_cls):
         mock_handler = MagicMock()
         mock_error_handler_cls.from_config.return_value = mock_handler
@@ -186,14 +194,14 @@ class TestContainerRouterClient:
         assert container._router_client is mock_client
         assert container.router_client is mock_client
 
-    @patch('asus_router_exporter.client.router_client.RouterClientFactory')
+    @patch("asus_router_exporter.client.router_client.RouterClientFactory")
     def test_router_client_lazy_creation(self, mock_factory_cls):
         mock_client = MagicMock(spec=RouterClientProtocol)
         mock_factory = MagicMock()
         mock_factory.auth.return_value = mock_client
         mock_factory_cls.return_value = mock_factory
 
-        config = Config({'router': {'host': '10.0.0.1', 'auth': 'admin:pass'}})
+        config = Config({"router": {"host": "10.0.0.1", "auth": "admin:pass"}})
         container = Container(config)
 
         # Should not be created yet
@@ -203,17 +211,17 @@ class TestContainerRouterClient:
         client = container.router_client
 
         assert client is mock_client
-        mock_factory_cls.assert_called_once_with('10.0.0.1')
-        mock_factory.auth.assert_called_once_with('admin:pass')
+        mock_factory_cls.assert_called_once_with("10.0.0.1")
+        mock_factory.auth.assert_called_once_with("admin:pass")
 
-    @patch('asus_router_exporter.client.router_client.RouterClientFactory')
+    @patch("asus_router_exporter.client.router_client.RouterClientFactory")
     def test_router_client_cached(self, mock_factory_cls):
         mock_client = MagicMock(spec=RouterClientProtocol)
         mock_factory = MagicMock()
         mock_factory.auth.return_value = mock_client
         mock_factory_cls.return_value = mock_factory
 
-        config = Config({'router': {'host': '10.0.0.1', 'auth': 'admin:pass'}})
+        config = Config({"router": {"host": "10.0.0.1", "auth": "admin:pass"}})
         container = Container(config)
 
         # Access twice

@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from asus_router_exporter.core.error_handling import (
     CircuitBreaker,
@@ -43,11 +43,7 @@ class TestRetryHandler:
         assert mock_func.call_count == 1
 
     def test_retry_on_failure(self):
-        handler = RetryHandler(RetryConfig(
-            max_attempts=3,
-            initial_delay=0.01,
-            backoff_factor=1.0
-        ))
+        handler = RetryHandler(RetryConfig(max_attempts=3, initial_delay=0.01, backoff_factor=1.0))
         mock_func = Mock(side_effect=[SimulatedError("fail"), SimulatedError("fail"), "success"])
 
         result = handler.execute(mock_func)
@@ -56,10 +52,7 @@ class TestRetryHandler:
         assert mock_func.call_count == 3
 
     def test_exhausted_retries_raises_error(self):
-        handler = RetryHandler(RetryConfig(
-            max_attempts=3,
-            initial_delay=0.01
-        ))
+        handler = RetryHandler(RetryConfig(max_attempts=3, initial_delay=0.01))
         error = ValueError("persistent error")
         mock_func = Mock(side_effect=error)
 
@@ -79,16 +72,9 @@ class TestRetryHandler:
         assert mock_func.call_count == 1
 
     def test_exponential_backoff(self):
-        with patch('asus_router_exporter.core.error_handling.time.sleep') as mock_sleep:
-            handler = RetryHandler(RetryConfig(
-                max_attempts=4,
-                initial_delay=1.0,
-                backoff_factor=2.0,
-                max_delay=10.0
-            ))
-            mock_func = Mock(side_effect=[
-                SimulatedError(), SimulatedError(), SimulatedError(), "success"
-            ])
+        with patch("asus_router_exporter.core.error_handling.time.sleep") as mock_sleep:
+            handler = RetryHandler(RetryConfig(max_attempts=4, initial_delay=1.0, backoff_factor=2.0, max_delay=10.0))
+            mock_func = Mock(side_effect=[SimulatedError(), SimulatedError(), SimulatedError(), "success"])
 
             handler.execute(mock_func)
 
@@ -98,16 +84,11 @@ class TestRetryHandler:
             assert delays == [1.0, 2.0, 4.0]
 
     def test_max_delay_cap(self):
-        with patch('asus_router_exporter.core.error_handling.time.sleep') as mock_sleep:
-            handler = RetryHandler(RetryConfig(
-                max_attempts=5,
-                initial_delay=1.0,
-                backoff_factor=10.0,
-                max_delay=5.0
-            ))
-            mock_func = Mock(side_effect=[
-                SimulatedError(), SimulatedError(), SimulatedError(), SimulatedError(), "success"
-            ])
+        with patch("asus_router_exporter.core.error_handling.time.sleep") as mock_sleep:
+            handler = RetryHandler(RetryConfig(max_attempts=5, initial_delay=1.0, backoff_factor=10.0, max_delay=5.0))
+            mock_func = Mock(
+                side_effect=[SimulatedError(), SimulatedError(), SimulatedError(), SimulatedError(), "success"]
+            )
 
             handler.execute(mock_func)
 
@@ -116,11 +97,7 @@ class TestRetryHandler:
             assert all(d <= 5.0 for d in delays)
 
     def test_retry_only_specified_exceptions(self):
-        handler = RetryHandler(RetryConfig(
-            max_attempts=3,
-            initial_delay=0.01,
-            retryable_exceptions=(ValueError,)
-        ))
+        handler = RetryHandler(RetryConfig(max_attempts=3, initial_delay=0.01, retryable_exceptions=(ValueError,)))
 
         # ValueError should be retried
         mock_func = Mock(side_effect=[ValueError(), "success"])
@@ -146,10 +123,7 @@ class TestCircuitBreaker:
         assert breaker.state == CircuitState.CLOSED
 
     def test_opens_after_threshold_failures(self):
-        breaker = CircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=3,
-            recovery_timeout=60.0
-        ))
+        breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=3, recovery_timeout=60.0))
 
         for _ in range(3):
             with pytest.raises(SimulatedError):
@@ -158,10 +132,7 @@ class TestCircuitBreaker:
         assert breaker.state == CircuitState.OPEN
 
     def test_open_state_blocks_execution(self):
-        breaker = CircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            recovery_timeout=60.0
-        ))
+        breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=1, recovery_timeout=60.0))
 
         # Trigger open state
         with pytest.raises(SimulatedError):
@@ -174,10 +145,7 @@ class TestCircuitBreaker:
             breaker.execute(Mock(return_value="success"))
 
     def test_transitions_to_half_open_after_recovery(self):
-        breaker = CircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            recovery_timeout=0.1
-        ))
+        breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=1, recovery_timeout=0.1))
 
         # Trigger open state
         with pytest.raises(SimulatedError):
@@ -194,10 +162,7 @@ class TestCircuitBreaker:
         assert breaker.state == CircuitState.CLOSED
 
     def test_half_open_closes_on_success(self):
-        breaker = CircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            recovery_timeout=0.01
-        ))
+        breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=1, recovery_timeout=0.01))
 
         # Trigger open state
         with pytest.raises(SimulatedError):
@@ -211,10 +176,7 @@ class TestCircuitBreaker:
         assert breaker.failure_count == 0
 
     def test_half_open_reopens_on_failure(self):
-        breaker = CircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            recovery_timeout=0.01
-        ))
+        breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=1, recovery_timeout=0.01))
 
         # Trigger open state
         with pytest.raises(SimulatedError):
@@ -241,10 +203,7 @@ class TestCircuitBreaker:
         assert result == "success"
 
     def test_reset(self):
-        breaker = CircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            recovery_timeout=60.0
-        ))
+        breaker = CircuitBreaker(CircuitBreakerConfig(failure_threshold=1, recovery_timeout=60.0))
 
         # Trigger open state
         with pytest.raises(SimulatedError):
@@ -258,11 +217,9 @@ class TestCircuitBreaker:
         assert breaker.failure_count == 0
 
     def test_half_open_max_calls(self):
-        breaker = CircuitBreaker(CircuitBreakerConfig(
-            failure_threshold=1,
-            recovery_timeout=0.01,
-            half_open_max_calls=2
-        ))
+        breaker = CircuitBreaker(
+            CircuitBreakerConfig(failure_threshold=1, recovery_timeout=0.01, half_open_max_calls=2)
+        )
 
         # Trigger open state
         with pytest.raises(SimulatedError):
@@ -286,8 +243,7 @@ class TestCompositeErrorHandler:
 
     def test_successful_execution(self):
         handler = CompositeErrorHandler(
-            retry_config=RetryConfig(max_attempts=3),
-            circuit_config=CircuitBreakerConfig(failure_threshold=5)
+            retry_config=RetryConfig(max_attempts=3), circuit_config=CircuitBreakerConfig(failure_threshold=5)
         )
         mock_func = Mock(return_value="success")
 
@@ -298,7 +254,7 @@ class TestCompositeErrorHandler:
     def test_retry_before_circuit_opens(self):
         handler = CompositeErrorHandler(
             retry_config=RetryConfig(max_attempts=2, initial_delay=0.01),
-            circuit_config=CircuitBreakerConfig(failure_threshold=5)
+            circuit_config=CircuitBreakerConfig(failure_threshold=5),
         )
 
         # Function fails then succeeds
@@ -312,7 +268,7 @@ class TestCompositeErrorHandler:
     def test_circuit_opens_after_retry_exhaustion(self):
         handler = CompositeErrorHandler(
             retry_config=RetryConfig(max_attempts=2, initial_delay=0.01),
-            circuit_config=CircuitBreakerConfig(failure_threshold=2)
+            circuit_config=CircuitBreakerConfig(failure_threshold=2),
         )
 
         # Multiple failures should eventually open circuit
@@ -326,19 +282,14 @@ class TestCompositeErrorHandler:
     def test_from_config(self):
         config = Mock()
         config.get.side_effect = lambda key, default={}: {
-            'error_handling': {
-                'retry': {
-                    'enabled': True,
-                    'max_attempts': 5,
-                    'backoff_factor': 3.0,
-                    'max_delay': 60.0
+            "error_handling": {
+                "retry": {"enabled": True, "max_attempts": 5, "backoff_factor": 3.0, "max_delay": 60.0},
+                "circuit_breaker": {
+                    "enabled": True,
+                    "failure_threshold": 10,
+                    "recovery_timeout": 120.0,
+                    "half_open_max_calls": 5,
                 },
-                'circuit_breaker': {
-                    'enabled': True,
-                    'failure_threshold': 10,
-                    'recovery_timeout': 120.0,
-                    'half_open_max_calls': 5
-                }
             }
         }.get(key, default)
 

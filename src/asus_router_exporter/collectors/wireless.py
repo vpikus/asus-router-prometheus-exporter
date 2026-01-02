@@ -96,13 +96,9 @@ class WirelessCollector(BaseCollector):
         )
         self._register_metric(self._ssid_hidden)
 
-    def _collect_metrics(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def _collect_metrics(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """Collect wireless metrics from router."""
-        product_id = getattr(router_info, 'product_id', 'unknown')
+        product_id = getattr(router_info, "product_id", "unknown")
 
         try:
             wireless_info = router_client.get_wireless_info()
@@ -111,18 +107,18 @@ class WirelessCollector(BaseCollector):
             return
 
         # WPS enabled
-        wps_enabled = getattr(wireless_info, 'wps_enabled', False)
+        wps_enabled = getattr(wireless_info, "wps_enabled", False)
         self._wps_enabled.labels(product_id=product_id).set(1 if wps_enabled else 0)
 
         # Smart Connect enabled
-        smart_connect = getattr(wireless_info, 'smart_connect_enabled', False)
+        smart_connect = getattr(wireless_info, "smart_connect_enabled", False)
         self._smart_connect.labels(product_id=product_id).set(1 if smart_connect else 0)
 
         # Collect band-specific metrics
-        self._collect_band_metrics(product_id, "0", getattr(wireless_info, 'band_2G_info', None))
-        self._collect_band_metrics(product_id, "1", getattr(wireless_info, 'band_5G_info', None))
-        self._collect_band_metrics(product_id, "2", getattr(wireless_info, 'band_5G_2_info', None))
-        self._collect_band_metrics(product_id, "3", getattr(wireless_info, 'band_6G_info', None))
+        self._collect_band_metrics(product_id, "0", getattr(wireless_info, "band_2G_info", None))
+        self._collect_band_metrics(product_id, "1", getattr(wireless_info, "band_5G_info", None))
+        self._collect_band_metrics(product_id, "2", getattr(wireless_info, "band_5G_2_info", None))
+        self._collect_band_metrics(product_id, "3", getattr(wireless_info, "band_6G_info", None))
 
         logger.debug("[%s] Wireless metrics collected", product_id)
 
@@ -132,37 +128,34 @@ class WirelessCollector(BaseCollector):
             return
 
         # Band info
-        self._band_info.labels(product_id=product_id, wl_unit=wl_unit).info({
-            "wl_ssid": getattr(band_info, 'ssid', ''),
-            "wl_mac": getattr(band_info, 'mac', ''),
-        })
+        self._band_info.labels(product_id=product_id, wl_unit=wl_unit).info(
+            {
+                "wl_ssid": getattr(band_info, "ssid", ""),
+                "wl_mac": getattr(band_info, "mac", ""),
+            }
+        )
 
         # SSID hidden
-        hidden = getattr(band_info, 'hidde_ssid', False)
+        hidden = getattr(band_info, "hidde_ssid", False)
         self._ssid_hidden.labels(product_id=product_id, wl_unit=wl_unit).set(1 if hidden else 0)
 
         # Band mode (one-hot)
-        mode = getattr(band_info, 'mode', None)
+        mode = getattr(band_info, "mode", None)
         if mode:
-            self._set_onehot_enum(
-                self._band_mode, product_id, wl_unit,
-                mode, "wl_mode", "WifiMode", lambda e: e.name
-            )
+            self._set_onehot_enum(self._band_mode, product_id, wl_unit, mode, "wl_mode", "WifiMode", lambda e: e.name)
 
         # Auth mode (one-hot)
-        auth_mode = getattr(band_info, 'auth_mode', None)
+        auth_mode = getattr(band_info, "auth_mode", None)
         if auth_mode:
             self._set_onehot_enum(
-                self._auth_mode, product_id, wl_unit,
-                auth_mode, "wl_auth_mode", "WifiAuthMode", lambda e: e.value
+                self._auth_mode, product_id, wl_unit, auth_mode, "wl_auth_mode", "WifiAuthMode", lambda e: e.value
             )
 
         # Crypto (one-hot)
-        crypto = getattr(band_info, 'crypto', None)
+        crypto = getattr(band_info, "crypto", None)
         if crypto:
             self._set_onehot_enum(
-                self._crypto, product_id, wl_unit,
-                crypto, "wl_crypto", "WifiCrypto", lambda e: e.value
+                self._crypto, product_id, wl_unit, crypto, "wl_crypto", "WifiCrypto", lambda e: e.value
             )
 
     def _set_onehot_enum(
@@ -173,21 +166,15 @@ class WirelessCollector(BaseCollector):
         current_value: Any,
         label_name: str,
         enum_name: str,
-        get_label_value: Any
+        get_label_value: Any,
     ) -> None:
         """Set one-hot encoding for an enum value."""
         enum_class = getattr(client_models, enum_name, None)
         if enum_class:
             for enum_val in enum_class:
                 value = 1 if enum_val == current_value else 0
-                gauge.labels(
-                    product_id=product_id,
-                    wl_unit=wl_unit,
-                    **{label_name: get_label_value(enum_val)}
-                ).set(value)
+                gauge.labels(product_id=product_id, wl_unit=wl_unit, **{label_name: get_label_value(enum_val)}).set(
+                    value
+                )
         else:
-            gauge.labels(
-                product_id=product_id,
-                wl_unit=wl_unit,
-                **{label_name: str(current_value)}
-            ).set(1)
+            gauge.labels(product_id=product_id, wl_unit=wl_unit, **{label_name: str(current_value)}).set(1)

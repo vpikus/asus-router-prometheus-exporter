@@ -4,7 +4,7 @@ Tests for the RouterClient module.
 
 import sys
 
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 import json
 from unittest.mock import MagicMock, patch
@@ -45,7 +45,7 @@ class TestRouterClientFactory:
         factory = RouterClientFactory("http://192.168.1.1/")
         assert factory.host == "http://192.168.1.1"
 
-    @patch('requests.Session')
+    @patch("requests.Session")
     def test_factory_auth_creates_client(self, mock_session_cls):
         mock_session = MagicMock()
         mock_response = MagicMock()
@@ -72,7 +72,7 @@ class TestRouterClientReauth:
         with pytest.raises(AuthenticationError, match="no auth token stored"):
             client._reauthenticate()
 
-    @patch('requests.Session')
+    @patch("requests.Session")
     def test_reauthenticate_with_token_creates_new_session(self, mock_session_cls):
         old_session = MagicMock()
         new_session = MagicMock()
@@ -102,7 +102,7 @@ class TestRouterClientRequestWithReauth:
         assert result == "result"
         mock_func.assert_called_once_with("arg1", "arg2")
 
-    @patch('requests.Session')
+    @patch("requests.Session")
     def test_request_reauth_on_auth_error(self, mock_session_cls):
         old_session = MagicMock()
         new_session = MagicMock()
@@ -171,12 +171,12 @@ class TestRouterClientHandleResponse:
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.text = 'not json'
+        mock_response.text = "not json"
         mock_response.json.side_effect = json.decoder.JSONDecodeError("", "", 0)
 
         # Should not raise
         result = client._handle_response(mock_response)
-        assert result == 'not json'
+        assert result == "not json"
 
 
 class TestRouterClientGetSwMode:
@@ -192,67 +192,35 @@ class TestRouterClientGetSwMode:
         return RouterClient(host="http://192.168.1.1", session=session)
 
     def test_sw_mode_router(self):
-        client = self._create_client_with_nvram({
-            "sw_mode": "1",
-            "wlc_psta": "0",
-            "wlc_express": "0"
-        })
+        client = self._create_client_with_nvram({"sw_mode": "1", "wlc_psta": "0", "wlc_express": "0"})
         assert client.get_sw_mode() == SwMode.RT
 
     def test_sw_mode_repeater_mode2(self):
-        client = self._create_client_with_nvram({
-            "sw_mode": "2",
-            "wlc_psta": "0",
-            "wlc_express": "0"
-        })
+        client = self._create_client_with_nvram({"sw_mode": "2", "wlc_psta": "0", "wlc_express": "0"})
         assert client.get_sw_mode() == SwMode.RE
 
     def test_sw_mode_repeater_mode3(self):
-        client = self._create_client_with_nvram({
-            "sw_mode": "3",
-            "wlc_psta": "2",
-            "wlc_express": "0"
-        })
+        client = self._create_client_with_nvram({"sw_mode": "3", "wlc_psta": "2", "wlc_express": "0"})
         assert client.get_sw_mode() == SwMode.RE
 
     def test_sw_mode_access_point(self):
-        client = self._create_client_with_nvram({
-            "sw_mode": "3",
-            "wlc_psta": "0",
-            "wlc_express": "0"
-        })
+        client = self._create_client_with_nvram({"sw_mode": "3", "wlc_psta": "0", "wlc_express": "0"})
         assert client.get_sw_mode() == SwMode.AP
 
     def test_sw_mode_media_bridge(self):
-        client = self._create_client_with_nvram({
-            "sw_mode": "3",
-            "wlc_psta": "1",
-            "wlc_express": "0"
-        })
+        client = self._create_client_with_nvram({"sw_mode": "3", "wlc_psta": "1", "wlc_express": "0"})
         assert client.get_sw_mode() == SwMode.MB
 
     def test_sw_mode_expressway_2g(self):
-        client = self._create_client_with_nvram({
-            "sw_mode": "2",
-            "wlc_psta": "0",
-            "wlc_express": "1"
-        })
+        client = self._create_client_with_nvram({"sw_mode": "2", "wlc_psta": "0", "wlc_express": "1"})
         assert client.get_sw_mode() == SwMode.EW2
 
     def test_sw_mode_expressway_5g(self):
-        client = self._create_client_with_nvram({
-            "sw_mode": "2",
-            "wlc_psta": "0",
-            "wlc_express": "2"
-        })
+        client = self._create_client_with_nvram({"sw_mode": "2", "wlc_psta": "0", "wlc_express": "2"})
         assert client.get_sw_mode() == SwMode.EW5
 
     def test_sw_mode_hotspot(self):
-        client = self._create_client_with_nvram({
-            "sw_mode": "5",
-            "wlc_psta": "0",
-            "wlc_express": "0"
-        })
+        client = self._create_client_with_nvram({"sw_mode": "5", "wlc_psta": "0", "wlc_express": "0"})
         assert client.get_sw_mode() == SwMode.HS
 
 
@@ -267,12 +235,9 @@ class TestRouterClientWanInfo:
         session = MagicMock()
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.text = json.dumps({
-            "wan0_state_t": "2",
-            "wan0_sbstate_t": "0",
-            "wan0_auxstate_t": "0",
-            "link_internet": "2"
-        })
+        mock_response.text = json.dumps(
+            {"wan0_state_t": "2", "wan0_sbstate_t": "0", "wan0_auxstate_t": "0", "link_internet": "2"}
+        )
         session.get.return_value = mock_response
 
         client = RouterClient(host="http://192.168.1.1", session=session)
@@ -293,12 +258,9 @@ class TestRouterClientDualWan:
         # Mock nvram response
         nvram_response = MagicMock()
         nvram_response.status_code = 200
-        nvram_response.text = json.dumps({
-            "wans_dualwan": "wan lan",
-            "wan0_enable": "1",
-            "wan1_enable": "1",
-            "wans_mode": "fo"
-        })
+        nvram_response.text = json.dumps(
+            {"wans_dualwan": "wan lan", "wan0_enable": "1", "wan1_enable": "1", "wans_mode": "fo"}
+        )
 
         # Mock get_wan_unit response
         wan_unit_response = MagicMock()
@@ -327,10 +289,7 @@ class TestRouterClientDslInfo:
         session = MagicMock()
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.text = json.dumps({
-            "dsl0_proto": "pppoe",
-            "dslx_transmode": "ptm"
-        })
+        mock_response.text = json.dumps({"dsl0_proto": "pppoe", "dslx_transmode": "ptm"})
         session.get.return_value = mock_response
 
         client = RouterClient(host="http://192.168.1.1", session=session)
@@ -347,39 +306,21 @@ class TestRouterClientPortStatus:
         session = MagicMock()
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.text = json.dumps({
-            "port_info": {
-                "AA:BB:CC:DD:EE:FF": {
-                    "L1": {
-                        "is_on": "1",
-                        "cap": "2",
-                        "max_rate": "1000",
-                        "link_rate": "1000"
-                    },
-                    "L2": {
-                        "is_on": "0",
-                        "cap": "2",
-                        "max_rate": "1000",
-                        "link_rate": "0"
+        mock_response.text = json.dumps(
+            {
+                "port_info": {
+                    "AA:BB:CC:DD:EE:FF": {
+                        "L1": {"is_on": "1", "cap": "2", "max_rate": "1000", "link_rate": "1000"},
+                        "L2": {"is_on": "0", "cap": "2", "max_rate": "1000", "link_rate": "0"},
                     }
                 }
             }
-        })
+        )
         mock_response.json.return_value = {
             "port_info": {
                 "AA:BB:CC:DD:EE:FF": {
-                    "L1": {
-                        "is_on": "1",
-                        "cap": "2",
-                        "max_rate": "1000",
-                        "link_rate": "1000"
-                    },
-                    "L2": {
-                        "is_on": "0",
-                        "cap": "2",
-                        "max_rate": "1000",
-                        "link_rate": "0"
-                    }
+                    "L1": {"is_on": "1", "cap": "2", "max_rate": "1000", "link_rate": "1000"},
+                    "L2": {"is_on": "0", "cap": "2", "max_rate": "1000", "link_rate": "0"},
                 }
             }
         }
@@ -400,61 +341,67 @@ class TestRouterClientClients:
         # Mock get_ui_support
         ui_support_response = MagicMock()
         ui_support_response.status_code = 200
-        ui_support_response.text = '{"get_ui_support": {"stainfo": "1", "amas": "1", "force_roaming": "1", "sta_ap_bind": "1"}}'
+        ui_support_response.text = (
+            '{"get_ui_support": {"stainfo": "1", "amas": "1", "force_roaming": "1", "sta_ap_bind": "1"}}'
+        )
 
         # Mock get_clientlist
         clientlist_response = MagicMock()
         clientlist_response.status_code = 200
-        clientlist_response.text = json.dumps({
-            "get_clientlist": {
-                "AA:BB:CC:DD:EE:FF": {
-                    "name": "MyDevice",
-                    "nickName": "Device",
-                    "ip": "192.168.1.100",
-                    "mac": "AA:BB:CC:DD:EE:FF",
-                    "vendor": "Apple",
-                    "isWL": "1",
-                    "isOnline": "1",
-                    "opMode": "0",
-                    "rssi": "-50",
-                    "ipMethod": "DHCP",
-                    "internetMode": "allow",
-                    "internetState": "1",
-                    "totalTx": "1000",
-                    "totalRx": "2000",
-                    "curTx": "100",
-                    "curRx": "200",
-                    "wlConnectTime": "3600",
-                    "amesh_isReClient": "0",
-                    "amesh_isRe": "0",
-                    "amesh_papMac": "",
-                    "amesh_bind_band": "0",
-                    "amesh_bind_mac": ""
+        clientlist_response.text = json.dumps(
+            {
+                "get_clientlist": {
+                    "AA:BB:CC:DD:EE:FF": {
+                        "name": "MyDevice",
+                        "nickName": "Device",
+                        "ip": "192.168.1.100",
+                        "mac": "AA:BB:CC:DD:EE:FF",
+                        "vendor": "Apple",
+                        "isWL": "1",
+                        "isOnline": "1",
+                        "opMode": "0",
+                        "rssi": "-50",
+                        "ipMethod": "DHCP",
+                        "internetMode": "allow",
+                        "internetState": "1",
+                        "totalTx": "1000",
+                        "totalRx": "2000",
+                        "curTx": "100",
+                        "curRx": "200",
+                        "wlConnectTime": "3600",
+                        "amesh_isReClient": "0",
+                        "amesh_isRe": "0",
+                        "amesh_papMac": "",
+                        "amesh_bind_band": "0",
+                        "amesh_bind_mac": "",
+                    }
                 }
             }
-        })
+        )
 
         # Mock get_clientlist_from_json_database
         clientdb_response = MagicMock()
         clientdb_response.status_code = 200
-        clientdb_response.text = json.dumps({
-            "get_clientlist_from_json_database": {
-                "AA:BB:CC:DD:EE:FF": {
-                    "name": "MyDevice",
-                    "nickName": "Device",
-                    "mac": "AA:BB:CC:DD:EE:FF",
-                    "vendor": "Apple",
-                    "online": "1",
-                    "os_type": "1",
-                    "type": "2",
-                    "conn_ts": "1704067200",
-                    "is_wireless": "1",
-                    "amesh_isRe": "0",
-                    "amesh_bind_band": "0",
-                    "amesh_bind_mac": ""
+        clientdb_response.text = json.dumps(
+            {
+                "get_clientlist_from_json_database": {
+                    "AA:BB:CC:DD:EE:FF": {
+                        "name": "MyDevice",
+                        "nickName": "Device",
+                        "mac": "AA:BB:CC:DD:EE:FF",
+                        "vendor": "Apple",
+                        "online": "1",
+                        "os_type": "1",
+                        "type": "2",
+                        "conn_ts": "1704067200",
+                        "is_wireless": "1",
+                        "amesh_isRe": "0",
+                        "amesh_bind_band": "0",
+                        "amesh_bind_mac": "",
+                    }
                 }
             }
-        })
+        )
 
         session.get.side_effect = [ui_support_response, clientlist_response, clientdb_response]
 
@@ -479,6 +426,7 @@ class TestRouterClientMapClientInfo:
 
     def _create_caps(self, features: dict):
         from asus_router_exporter.client.models import RouterFeatureCapabilities
+
         return RouterFeatureCapabilities(features)
 
     def test_map_client_info_basic(self):
@@ -507,14 +455,9 @@ class TestRouterClientMapClientInfo:
             "amesh_isRe": "0",
             "amesh_papMac": "",
             "amesh_bind_band": "0",
-            "amesh_bind_mac": ""
+            "amesh_bind_mac": "",
         }
-        client_db_data = {
-            "conn_ts": "1704067200",
-            "is_wireless": "1",
-            "os_type": "1",
-            "type": "2"
-        }
+        client_db_data = {"conn_ts": "1704067200", "is_wireless": "1", "os_type": "1", "type": "2"}
 
         info = client._map_client_info(caps, client_data, client_db_data)
 
@@ -551,14 +494,9 @@ class TestRouterClientMapClientInfo:
             "amesh_isRe": "0",
             "amesh_papMac": "11:22:33:44:55:66",
             "amesh_bind_band": "0",
-            "amesh_bind_mac": ""
+            "amesh_bind_mac": "",
         }
-        client_db_data = {
-            "conn_ts": "1704067200",
-            "is_wireless": "1",
-            "os_type": "1",
-            "type": "2"
-        }
+        client_db_data = {"conn_ts": "1704067200", "is_wireless": "1", "os_type": "1", "type": "2"}
 
         info = client._map_client_info(caps, client_data, client_db_data)
 
@@ -590,14 +528,9 @@ class TestRouterClientMapClientInfo:
             "wlConnectTime": "",
             "amesh_isReClient": "0",
             "amesh_isRe": "1",
-            "amesh_papMac": ""
+            "amesh_papMac": "",
         }
-        client_db_data = {
-            "conn_ts": "1704067200",
-            "is_wireless": "1",
-            "os_type": "0",
-            "type": "0"
-        }
+        client_db_data = {"conn_ts": "1704067200", "is_wireless": "1", "os_type": "0", "type": "0"}
 
         info = client._map_client_info(caps, client_data, client_db_data)
 
@@ -620,7 +553,7 @@ class TestRouterClientMapClientInfo:
             "is_wireless": "1",
             "amesh_isRe": "0",
             "amesh_bind_band": "1",
-            "amesh_bind_mac": "11:22:33:44:55:66"
+            "amesh_bind_mac": "11:22:33:44:55:66",
         }
 
         info = client._map_client_info_from_db(caps, client_db_data)

@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RetryConfig:
     """Configuration for retry behavior."""
+
     enabled: bool = True
     max_attempts: int = 3
     backoff_factor: float = 2.0
@@ -50,12 +51,7 @@ class RetryHandler:
         """
         self.config = config or RetryConfig()
 
-    def execute(
-        self,
-        func: Callable[..., Any],
-        *args: Any,
-        **kwargs: Any
-    ) -> Any:
+    def execute(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """
         Execute function with retry logic.
 
@@ -87,16 +83,12 @@ class RetryHandler:
                         attempt,
                         self.config.max_attempts,
                         str(e),
-                        delay
+                        delay,
                     )
                     time.sleep(delay)
                     delay = min(delay * self.config.backoff_factor, self.config.max_delay)
                 else:
-                    logger.error(
-                        "All %d attempts failed. Last error: %s",
-                        self.config.max_attempts,
-                        str(e)
-                    )
+                    logger.error("All %d attempts failed. Last error: %s", self.config.max_attempts, str(e))
 
         # last_error should never be None here since we only reach this point
         # after catching at least one exception, but assert for type safety
@@ -106,14 +98,16 @@ class RetryHandler:
 
 class CircuitState(Enum):
     """Circuit breaker states."""
-    CLOSED = "closed"      # Normal operation
-    OPEN = "open"          # Failing fast
+
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing fast
     HALF_OPEN = "half_open"  # Testing recovery
 
 
 @dataclass
 class CircuitBreakerConfig:
     """Configuration for circuit breaker."""
+
     enabled: bool = True
     failure_threshold: int = 5
     recovery_timeout: float = 60.0
@@ -123,6 +117,7 @@ class CircuitBreakerConfig:
 @dataclass
 class CircuitBreakerState:
     """Internal state for circuit breaker."""
+
     state: CircuitState = CircuitState.CLOSED
     failure_count: int = 0
     last_failure_time: float = 0.0
@@ -178,12 +173,7 @@ class CircuitBreaker:
         """Get current failure count."""
         return self._state.failure_count
 
-    def execute(
-        self,
-        func: Callable[..., Any],
-        *args: Any,
-        **kwargs: Any
-    ) -> Any:
+    def execute(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """
         Execute function through circuit breaker.
 
@@ -206,15 +196,12 @@ class CircuitBreaker:
 
             if self._state.state == CircuitState.OPEN:
                 raise CircuitBreakerOpenError(
-                    f"Circuit breaker is open. Recovery in "
-                    f"{self._time_until_recovery():.1f}s"
+                    f"Circuit breaker is open. Recovery in {self._time_until_recovery():.1f}s"
                 )
 
             if self._state.state == CircuitState.HALF_OPEN:
                 if self._state.half_open_calls >= self.config.half_open_max_calls:
-                    raise CircuitBreakerOpenError(
-                        "Circuit breaker is half-open but max test calls reached"
-                    )
+                    raise CircuitBreakerOpenError("Circuit breaker is half-open but max test calls reached")
                 self._state.half_open_calls += 1
 
         try:
@@ -266,10 +253,7 @@ class CircuitBreaker:
                 logger.warning("Circuit breaker transitioning to OPEN after failed test")
                 self._state.state = CircuitState.OPEN
             elif self._state.failure_count >= self.config.failure_threshold:
-                logger.warning(
-                    "Circuit breaker transitioning to OPEN after %d failures",
-                    self._state.failure_count
-                )
+                logger.warning("Circuit breaker transitioning to OPEN after %d failures", self._state.failure_count)
                 self._state.state = CircuitState.OPEN
 
     def reset(self) -> None:
@@ -292,11 +276,7 @@ class CompositeErrorHandler:
     3. Failures are reported back to the circuit breaker
     """
 
-    def __init__(
-        self,
-        retry_config: RetryConfig | None = None,
-        circuit_config: CircuitBreakerConfig | None = None
-    ):
+    def __init__(self, retry_config: RetryConfig | None = None, circuit_config: CircuitBreakerConfig | None = None):
         """
         Initialize composite handler.
 
@@ -307,12 +287,7 @@ class CompositeErrorHandler:
         self.retry_handler = RetryHandler(retry_config)
         self.circuit_breaker = CircuitBreaker(circuit_config)
 
-    def execute(
-        self,
-        func: Callable[..., Any],
-        *args: Any,
-        **kwargs: Any
-    ) -> Any:
+    def execute(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         """
         Execute function with combined error handling.
 
@@ -328,6 +303,7 @@ class CompositeErrorHandler:
             CircuitBreakerOpenError: If circuit is open
             RetryExhaustedError: If all retries fail
         """
+
         def retryable_call() -> Any:
             return self.retry_handler.execute(func, *args, **kwargs)
 
@@ -344,22 +320,22 @@ class CompositeErrorHandler:
         Returns:
             Configured CompositeErrorHandler
         """
-        error_config = config.get('error_handling', {})
-        retry = error_config.get('retry', {})
-        circuit = error_config.get('circuit_breaker', {})
+        error_config = config.get("error_handling", {})
+        retry = error_config.get("retry", {})
+        circuit = error_config.get("circuit_breaker", {})
 
         retry_config = RetryConfig(
-            enabled=retry.get('enabled', True),
-            max_attempts=retry.get('max_attempts', 3),
-            backoff_factor=retry.get('backoff_factor', 2.0),
-            max_delay=retry.get('max_delay', 30.0),
+            enabled=retry.get("enabled", True),
+            max_attempts=retry.get("max_attempts", 3),
+            backoff_factor=retry.get("backoff_factor", 2.0),
+            max_delay=retry.get("max_delay", 30.0),
         )
 
         circuit_config = CircuitBreakerConfig(
-            enabled=circuit.get('enabled', True),
-            failure_threshold=circuit.get('failure_threshold', 5),
-            recovery_timeout=circuit.get('recovery_timeout', 60.0),
-            half_open_max_calls=circuit.get('half_open_max_calls', 3),
+            enabled=circuit.get("enabled", True),
+            failure_threshold=circuit.get("failure_threshold", 5),
+            recovery_timeout=circuit.get("recovery_timeout", 60.0),
+            half_open_max_calls=circuit.get("half_open_max_calls", 3),
         )
 
         return cls(retry_config, circuit_config)

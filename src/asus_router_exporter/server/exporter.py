@@ -125,6 +125,7 @@ class Exporter:
                 self._collect_with_error_handling()
                 time.sleep(interval)
         except KeyboardInterrupt:
+            # Allow graceful exit from collection loop via Ctrl+C
             pass
         finally:
             self._shutdown()

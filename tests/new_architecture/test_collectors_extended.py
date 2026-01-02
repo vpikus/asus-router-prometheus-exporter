@@ -8,7 +8,7 @@ PortsCollector, RouterInfoCollector, ClientsCollector
 import sys
 from unittest.mock import Mock
 
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 from prometheus_client import CollectorRegistry
 
@@ -36,7 +36,7 @@ class MockConfig:
         self._data = data or {}
 
     def get(self, key, default=None):
-        keys = key.split('.')
+        keys = key.split(".")
         value = self._data
         for k in keys:
             if isinstance(value, dict):
@@ -55,14 +55,13 @@ class MockConfig:
 # Memory Collector Tests
 # ============================================================================
 
+
 class TestMemoryCollector:
     """Tests for MemoryCollector."""
 
     def setup_method(self):
         self.registry = CollectorRegistry()
-        self.config = MockConfig({
-            'collectors': {'memory': {'enabled': True}}
-        })
+        self.config = MockConfig({"collectors": {"memory": {"enabled": True}}})
 
     def test_memory_collector_initialization(self):
         collector = MemoryCollector(self.registry, self.config)
@@ -78,7 +77,7 @@ class TestMemoryCollector:
         mem_info = Mock(total_kb=1048576, used_kb=524288, free_kb=524288)
         router_client.get_memory_usage.return_value = mem_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -94,7 +93,7 @@ class TestMemoryCollector:
         mem_info = Mock(total_kb=1000, used_kb=500, free_kb=500)
         router_client.get_memory_usage.return_value = mem_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -102,7 +101,7 @@ class TestMemoryCollector:
         samples = list(collector._used_percent.collect())
         for sample in samples:
             for s in sample.samples:
-                if s.labels.get('product_id') == 'RT-AX88U':
+                if s.labels.get("product_id") == "RT-AX88U":
                     assert s.value == 50.0
 
     def test_memory_collection_failure(self):
@@ -111,7 +110,7 @@ class TestMemoryCollector:
         router_client = Mock()
         router_client.get_memory_usage.side_effect = Exception("Connection failed")
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         # Should not raise
         collector.collect(router_client, router_info)
@@ -142,7 +141,7 @@ class TestMemoryCollector:
         mem_info = Mock(total_kb=100, used_kb=150, free_kb=-50)
         router_client.get_memory_usage.return_value = mem_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
         collector.collect(router_client, router_info)
 
 
@@ -150,14 +149,13 @@ class TestMemoryCollector:
 # Netdev Collector Tests
 # ============================================================================
 
+
 class TestNetdevCollector:
     """Tests for NetdevCollector."""
 
     def setup_method(self):
         self.registry = CollectorRegistry()
-        self.config = MockConfig({
-            'collectors': {'netdev': {'enabled': True}}
-        })
+        self.config = MockConfig({"collectors": {"netdev": {"enabled": True}}})
 
     def test_netdev_collector_initialization(self):
         collector = NetdevCollector(self.registry, self.config)
@@ -175,12 +173,12 @@ class TestNetdevCollector:
         netdev_info = Mock(
             bridge=bridge,
             wired=wired,
-            internet={'0': Mock(total_upload_bytes=100, total_download_bytes=200)},
-            wireless={'0': Mock(total_upload_bytes=50, total_download_bytes=100)}
+            internet={"0": Mock(total_upload_bytes=100, total_download_bytes=200)},
+            wireless={"0": Mock(total_upload_bytes=50, total_download_bytes=100)},
         )
         router_client.get_netdev.return_value = netdev_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         # First collection
         collector.collect(router_client, router_info)
@@ -201,15 +199,10 @@ class TestNetdevCollector:
         router_client = Mock()
         bridge1 = Mock(total_upload_bytes=1000, total_download_bytes=2000)
         wired1 = Mock(total_upload_bytes=500, total_download_bytes=1000)
-        netdev_info1 = Mock(
-            bridge=bridge1,
-            wired=wired1,
-            internet={},
-            wireless={}
-        )
+        netdev_info1 = Mock(bridge=bridge1, wired=wired1, internet={}, wireless={})
         router_client.get_netdev.return_value = netdev_info1
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         # First sample
         collector.collect(router_client, router_info)
@@ -217,12 +210,7 @@ class TestNetdevCollector:
         # Second sample with increased values
         bridge2 = Mock(total_upload_bytes=1500, total_download_bytes=2500)
         wired2 = Mock(total_upload_bytes=600, total_download_bytes=1100)
-        netdev_info2 = Mock(
-            bridge=bridge2,
-            wired=wired2,
-            internet={},
-            wireless={}
-        )
+        netdev_info2 = Mock(bridge=bridge2, wired=wired2, internet={}, wireless={})
         router_client.get_netdev.return_value = netdev_info2
 
         collector.collect(router_client, router_info)
@@ -233,14 +221,14 @@ class TestNetdevCollector:
         router_client = Mock()
         router_client.get_netdev.side_effect = Exception("Connection failed")
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         # Should not raise
         collector.collect(router_client, router_info)
 
     def test_cleanup_clears_samples(self):
         collector = NetdevCollector(self.registry, self.config)
-        collector._previous_samples = {'bridge': {'tx': 100, 'rx': 200}}
+        collector._previous_samples = {"bridge": {"tx": 100, "rx": 200}}
 
         collector.cleanup()
 
@@ -254,37 +242,36 @@ class TestNetdevCollector:
             bridge=Mock(total_upload_bytes=1000, total_download_bytes=2000),
             wired=Mock(total_upload_bytes=500, total_download_bytes=1000),
             internet={
-                '0': Mock(total_upload_bytes=100, total_download_bytes=200),
-                '1': Mock(total_upload_bytes=150, total_download_bytes=250)
+                "0": Mock(total_upload_bytes=100, total_download_bytes=200),
+                "1": Mock(total_upload_bytes=150, total_download_bytes=250),
             },
             wireless={
-                '0': Mock(total_upload_bytes=50, total_download_bytes=100),
-                '1': Mock(total_upload_bytes=75, total_download_bytes=125)
-            }
+                "0": Mock(total_upload_bytes=50, total_download_bytes=100),
+                "1": Mock(total_upload_bytes=75, total_download_bytes=125),
+            },
         )
         router_client.get_netdev.return_value = netdev_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         # First sample
         collector.collect(router_client, router_info)
 
-        assert 'internet' in collector._previous_samples
-        assert 'wireless' in collector._previous_samples
+        assert "internet" in collector._previous_samples
+        assert "wireless" in collector._previous_samples
 
 
 # ============================================================================
 # WAN Collector Tests
 # ============================================================================
 
+
 class TestWANCollector:
     """Tests for WANCollector."""
 
     def setup_method(self):
         self.registry = CollectorRegistry()
-        self.config = MockConfig({
-            'collectors': {'wan': {'enabled': True}}
-        })
+        self.config = MockConfig({"collectors": {"wan": {"enabled": True}}})
 
     def test_wan_collector_initialization(self):
         collector = WANCollector(self.registry, self.config)
@@ -300,25 +287,15 @@ class TestWANCollector:
         # Create mock WAN info
         dual_wan_info = Mock(enabled=True, wans_mode=WanMode.LOAD_BALANCE)
         connection_info = Mock(
-            state=WanState.CONNECTED,
-            substate=WanSubState.OK,
-            auxstate=WanAuxState.CONNECTED,
-            is_connected=True
+            state=WanState.CONNECTED, substate=WanSubState.OK, auxstate=WanAuxState.CONNECTED, is_connected=True
         )
-        primary_wan = Mock(
-            connection_info=connection_info,
-            status=WanStatus.CONNECTED,
-            active=True
-        )
+        primary_wan = Mock(connection_info=connection_info, status=WanStatus.CONNECTED, active=True)
         wan_info = Mock(
-            dual_wan_info=dual_wan_info,
-            link_internet=Mock(value=1),
-            primary_wan=primary_wan,
-            secondary_wan=None
+            dual_wan_info=dual_wan_info, link_internet=Mock(value=1), primary_wan=primary_wan, secondary_wan=None
         )
         router_client.get_network_wan_info.return_value = wan_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -328,7 +305,7 @@ class TestWANCollector:
         router_client = Mock()
         router_client.get_network_wan_info.side_effect = Exception("Connection failed")
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         # Should not raise
         collector.collect(router_client, router_info)
@@ -339,25 +316,13 @@ class TestWANCollector:
         router_client = Mock()
         dual_wan_info = Mock(enabled=False, wans_mode=None)
         connection_info = Mock(
-            state=WanState.CONNECTED,
-            substate=WanSubState.OK,
-            auxstate=WanAuxState.CONNECTED,
-            is_connected=True
+            state=WanState.CONNECTED, substate=WanSubState.OK, auxstate=WanAuxState.CONNECTED, is_connected=True
         )
-        primary_wan = Mock(
-            connection_info=connection_info,
-            status=WanStatus.CONNECTED,
-            active=True
-        )
-        wan_info = Mock(
-            dual_wan_info=dual_wan_info,
-            link_internet=True,
-            primary_wan=primary_wan,
-            secondary_wan=None
-        )
+        primary_wan = Mock(connection_info=connection_info, status=WanStatus.CONNECTED, active=True)
+        wan_info = Mock(dual_wan_info=dual_wan_info, link_internet=True, primary_wan=primary_wan, secondary_wan=None)
         router_client.get_network_wan_info.return_value = wan_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -367,35 +332,25 @@ class TestWANCollector:
         router_client = Mock()
         dual_wan_info = Mock(enabled=True, wans_mode=WanMode.FAIL_OVER)
         connection_info = Mock(
-            state=WanState.CONNECTED,
-            substate=WanSubState.OK,
-            auxstate=WanAuxState.CONNECTED,
-            is_connected=True
+            state=WanState.CONNECTED, substate=WanSubState.OK, auxstate=WanAuxState.CONNECTED, is_connected=True
         )
-        primary_wan = Mock(
-            connection_info=connection_info,
-            status=WanStatus.CONNECTED,
-            active=True
-        )
+        primary_wan = Mock(connection_info=connection_info, status=WanStatus.CONNECTED, active=True)
         secondary_wan = Mock(
             connection_info=Mock(
-                state=WanState.IDLE,
-                substate=WanSubState.OK,
-                auxstate=WanAuxState.DISCONNECTED,
-                is_connected=False
+                state=WanState.IDLE, substate=WanSubState.OK, auxstate=WanAuxState.DISCONNECTED, is_connected=False
             ),
             status=WanStatus.DISCONNECTED,
-            active=False
+            active=False,
         )
         wan_info = Mock(
             dual_wan_info=dual_wan_info,
             link_internet=Mock(value=1),
             primary_wan=primary_wan,
-            secondary_wan=secondary_wan
+            secondary_wan=secondary_wan,
         )
         router_client.get_network_wan_info.return_value = wan_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -404,14 +359,13 @@ class TestWANCollector:
 # Wireless Collector Tests
 # ============================================================================
 
+
 class TestWirelessCollector:
     """Tests for WirelessCollector."""
 
     def setup_method(self):
         self.registry = CollectorRegistry()
-        self.config = MockConfig({
-            'collectors': {'wireless': {'enabled': True}}
-        })
+        self.config = MockConfig({"collectors": {"wireless": {"enabled": True}}})
 
     def test_wireless_collector_initialization(self):
         collector = WirelessCollector(self.registry, self.config)
@@ -428,19 +382,19 @@ class TestWirelessCollector:
             smart_connect=False,
             bands=[
                 Mock(
-                    band='2.4GHz',
-                    ssid='TestNetwork',
-                    mac='AA:BB:CC:DD:EE:FF',
-                    mode=Mock(name='ax'),
-                    auth_mode=Mock(name='psk2'),
-                    crypto=Mock(name='aes'),
-                    hidden=False
+                    band="2.4GHz",
+                    ssid="TestNetwork",
+                    mac="AA:BB:CC:DD:EE:FF",
+                    mode=Mock(name="ax"),
+                    auth_mode=Mock(name="psk2"),
+                    crypto=Mock(name="aes"),
+                    hidden=False,
                 )
-            ]
+            ],
         )
         router_client.get_network_wireless_info.return_value = wireless_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -450,7 +404,7 @@ class TestWirelessCollector:
         router_client = Mock()
         router_client.get_network_wireless_info.side_effect = Exception("Failed")
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         # Should not raise
         collector.collect(router_client, router_info)
@@ -464,28 +418,28 @@ class TestWirelessCollector:
             smart_connect=True,
             bands=[
                 Mock(
-                    band='2.4GHz',
-                    ssid='TestNetwork',
-                    mac='AA:BB:CC:DD:EE:FF',
-                    mode=Mock(name='ax'),
-                    auth_mode=Mock(name='psk2'),
-                    crypto=Mock(name='aes'),
-                    hidden=False
+                    band="2.4GHz",
+                    ssid="TestNetwork",
+                    mac="AA:BB:CC:DD:EE:FF",
+                    mode=Mock(name="ax"),
+                    auth_mode=Mock(name="psk2"),
+                    crypto=Mock(name="aes"),
+                    hidden=False,
                 ),
                 Mock(
-                    band='5GHz',
-                    ssid='TestNetwork_5G',
-                    mac='AA:BB:CC:DD:EE:00',
-                    mode=Mock(name='ax'),
-                    auth_mode=Mock(name='psk2'),
-                    crypto=Mock(name='aes'),
-                    hidden=True
-                )
-            ]
+                    band="5GHz",
+                    ssid="TestNetwork_5G",
+                    mac="AA:BB:CC:DD:EE:00",
+                    mode=Mock(name="ax"),
+                    auth_mode=Mock(name="psk2"),
+                    crypto=Mock(name="aes"),
+                    hidden=True,
+                ),
+            ],
         )
         router_client.get_network_wireless_info.return_value = wireless_info
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -494,14 +448,13 @@ class TestWirelessCollector:
 # Ports Collector Tests
 # ============================================================================
 
+
 class TestPortsCollector:
     """Tests for PortsCollector."""
 
     def setup_method(self):
         self.registry = CollectorRegistry()
-        self.config = MockConfig({
-            'collectors': {'ports': {'enabled': True}}
-        })
+        self.config = MockConfig({"collectors": {"ports": {"enabled": True}}})
 
     def test_ports_collector_initialization(self):
         collector = PortsCollector(self.registry, self.config)
@@ -514,34 +467,34 @@ class TestPortsCollector:
 
         router_client = Mock()
         router_info = Mock(
-            product_id='RT-AX88U',
-            lan_hwaddr='AA:BB:CC:DD:EE:FF',
+            product_id="RT-AX88U",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
             ports_info=[
                 Mock(
-                    id='W0',
+                    id="W0",
                     plugged=True,
                     max_supported_speed_rate_mbps=1000,
                     current_speed_rate_mbps=1000,
                     is_slow_speed=False,
-                    group=Mock(name='WAN')
+                    group=Mock(name="WAN"),
                 ),
                 Mock(
-                    id='L1',
+                    id="L1",
                     plugged=True,
                     max_supported_speed_rate_mbps=1000,
                     current_speed_rate_mbps=100,
                     is_slow_speed=True,
-                    group=Mock(name='LAN')
+                    group=Mock(name="LAN"),
                 ),
                 Mock(
-                    id='L2',
+                    id="L2",
                     plugged=False,
                     max_supported_speed_rate_mbps=1000,
                     current_speed_rate_mbps=0,
                     is_slow_speed=False,
-                    group=Mock(name='LAN')
-                )
-            ]
+                    group=Mock(name="LAN"),
+                ),
+            ],
         )
 
         collector.collect(router_client, router_info)
@@ -550,11 +503,7 @@ class TestPortsCollector:
         collector = PortsCollector(self.registry, self.config)
 
         router_client = Mock()
-        router_info = Mock(
-            product_id='RT-AX88U',
-            lan_hwaddr='AA:BB:CC:DD:EE:FF',
-            ports_info=None
-        )
+        router_info = Mock(product_id="RT-AX88U", lan_hwaddr="AA:BB:CC:DD:EE:FF", ports_info=None)
 
         # Should not raise
         collector.collect(router_client, router_info)
@@ -563,11 +512,7 @@ class TestPortsCollector:
         collector = PortsCollector(self.registry, self.config)
 
         router_client = Mock()
-        router_info = Mock(
-            product_id='RT-AX88U',
-            lan_hwaddr='AA:BB:CC:DD:EE:FF',
-            ports_info=[]
-        )
+        router_info = Mock(product_id="RT-AX88U", lan_hwaddr="AA:BB:CC:DD:EE:FF", ports_info=[])
 
         collector.collect(router_client, router_info)
 
@@ -576,14 +521,13 @@ class TestPortsCollector:
 # Router Info Collector Tests
 # ============================================================================
 
+
 class TestRouterInfoCollector:
     """Tests for RouterInfoCollector."""
 
     def setup_method(self):
         self.registry = CollectorRegistry()
-        self.config = MockConfig({
-            'collectors': {'router_info': {'enabled': True}}
-        })
+        self.config = MockConfig({"collectors": {"router_info": {"enabled": True}}})
 
     def test_router_info_collector_initialization(self):
         collector = RouterInfoCollector(self.registry, self.config)
@@ -596,16 +540,16 @@ class TestRouterInfoCollector:
 
         router_client = Mock()
         router_info = Mock(
-            product_id='RT-AX88U',
-            firmver='3.0.0.4',
-            extendno='386_51234',
-            serial_no='ABC123',
-            lan_hostname='router',
-            lan_hwaddr='AA:BB:CC:DD:EE:FF',
-            sw_mode=Mock(name='RT'),
+            product_id="RT-AX88U",
+            firmver="3.0.0.4",
+            extendno="386_51234",
+            serial_no="ABC123",
+            lan_hostname="router",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
+            sw_mode=Mock(name="RT"),
             uptime=Mock(boottime=86400),
             reboot_schedule=Mock(enabled=True, until_ms=3600000),
-            software_update_available=False
+            software_update_available=False,
         )
 
         collector.collect(router_client, router_info)
@@ -615,16 +559,16 @@ class TestRouterInfoCollector:
 
         router_client = Mock()
         router_info = Mock(
-            product_id='RT-AX88U',
-            firmver='3.0.0.4',
-            extendno='386_51234',
-            serial_no='ABC123',
-            lan_hostname='router',
-            lan_hwaddr='AA:BB:CC:DD:EE:FF',
-            sw_mode=Mock(name='RT'),
+            product_id="RT-AX88U",
+            firmver="3.0.0.4",
+            extendno="386_51234",
+            serial_no="ABC123",
+            lan_hostname="router",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
+            sw_mode=Mock(name="RT"),
             uptime=None,
             reboot_schedule=None,
-            software_update_available=True
+            software_update_available=True,
         )
 
         collector.collect(router_client, router_info)
@@ -634,12 +578,12 @@ class TestRouterInfoCollector:
 
         router_client = Mock()
         # Minimal router_info with empty string attributes (not None - Info metric doesn't accept None)
-        router_info = Mock(product_id='RT-AX88U')
-        router_info.firmver = ''
-        router_info.extendno = ''
-        router_info.serial_no = ''
-        router_info.lan_hostname = ''
-        router_info.lan_hwaddr = ''
+        router_info = Mock(product_id="RT-AX88U")
+        router_info.firmver = ""
+        router_info.extendno = ""
+        router_info.serial_no = ""
+        router_info.lan_hostname = ""
+        router_info.lan_hwaddr = ""
         router_info.sw_mode = None
         router_info.uptime = None
         router_info.reboot_schedule = None
@@ -652,14 +596,13 @@ class TestRouterInfoCollector:
 # Clients Collector Tests
 # ============================================================================
 
+
 class TestClientsCollector:
     """Tests for ClientsCollector."""
 
     def setup_method(self):
         self.registry = CollectorRegistry()
-        self.config = MockConfig({
-            'collectors': {'clients': {'enabled': True}}
-        })
+        self.config = MockConfig({"collectors": {"clients": {"enabled": True}}})
 
     def test_clients_collector_initialization(self):
         collector = ClientsCollector(self.registry, self.config)
@@ -674,26 +617,26 @@ class TestClientsCollector:
 
         # Create mock client with interface that has label attribute
         interface = Mock()
-        interface.label = '2.4GHz'
+        interface.label = "2.4GHz"
 
         # Create mock amesh_info
         amesh_info = Mock()
-        amesh_info.pap_mac = ''
+        amesh_info.pap_mac = ""
         amesh_info.role = ClientAmeshRole.CLIENT
 
         # Create mock client - not a ClientInfo instance
         client = Mock()
-        client.mac = 'AA:BB:CC:DD:EE:FF'
-        client.ipaddr = '192.168.1.100'
-        client.name = 'TestDevice'
-        client.nick_name = ''
-        client.vendor = 'Apple'
+        client.mac = "AA:BB:CC:DD:EE:FF"
+        client.ipaddr = "192.168.1.100"
+        client.name = "TestDevice"
+        client.nick_name = ""
+        client.vendor = "Apple"
         client.last_conn_interface = interface
         client.amesh_info = amesh_info
 
         router_client.get_clients.return_value = [client]
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -703,7 +646,7 @@ class TestClientsCollector:
         router_client = Mock()
         router_client.get_clients.side_effect = Exception("Failed")
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         # Should not raise
         collector.collect(router_client, router_info)
@@ -714,7 +657,7 @@ class TestClientsCollector:
         router_client = Mock()
         router_client.get_clients.return_value = []
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -725,31 +668,31 @@ class TestClientsCollector:
 
         # Create mock interfaces
         interface1 = Mock()
-        interface1.label = '2.4GHz'
+        interface1.label = "2.4GHz"
 
         interface2 = Mock()
-        interface2.label = 'Wired'
+        interface2.label = "Wired"
 
         # Create mock clients
         client1 = Mock()
-        client1.mac = 'AA:BB:CC:DD:EE:FF'
-        client1.name = 'Device1'
-        client1.nick_name = ''
-        client1.vendor = 'Apple'
+        client1.mac = "AA:BB:CC:DD:EE:FF"
+        client1.name = "Device1"
+        client1.nick_name = ""
+        client1.vendor = "Apple"
         client1.last_conn_interface = interface1
         client1.amesh_info = None
 
         client2 = Mock()
-        client2.mac = '11:22:33:44:55:66'
-        client2.name = 'Device2'
-        client2.nick_name = ''
-        client2.vendor = 'Samsung'
+        client2.mac = "11:22:33:44:55:66"
+        client2.name = "Device2"
+        client2.nick_name = ""
+        client2.vendor = "Samsung"
         client2.last_conn_interface = interface2
         client2.amesh_info = None
 
         router_client.get_clients.return_value = [client1, client2]
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 
@@ -759,16 +702,16 @@ class TestClientsCollector:
         router_client = Mock()
 
         client = Mock()
-        client.mac = 'AA:BB:CC:DD:EE:FF'
-        client.name = ''
-        client.nick_name = ''
-        client.vendor = ''
+        client.mac = "AA:BB:CC:DD:EE:FF"
+        client.name = ""
+        client.nick_name = ""
+        client.vendor = ""
         client.last_conn_interface = None
         client.amesh_info = None
 
         router_client.get_clients.return_value = [client]
 
-        router_info = Mock(product_id='RT-AX88U')
+        router_info = Mock(product_id="RT-AX88U")
 
         collector.collect(router_client, router_info)
 

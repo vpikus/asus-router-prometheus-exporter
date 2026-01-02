@@ -4,7 +4,7 @@ Tests for the Exporter module.
 
 import sys
 
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 import signal
 from unittest.mock import MagicMock, patch
@@ -35,10 +35,7 @@ class TestFallbackRouterInfo:
         assert info.ports_info == []
 
     def test_custom_values(self):
-        info = FallbackRouterInfo(
-            product_id="RT-AX88U",
-            lan_hwaddr="AA:BB:CC:DD:EE:FF"
-        )
+        info = FallbackRouterInfo(product_id="RT-AX88U", lan_hwaddr="AA:BB:CC:DD:EE:FF")
 
         assert info.product_id == "RT-AX88U"
         assert info.lan_hwaddr == "AA:BB:CC:DD:EE:FF"
@@ -116,12 +113,12 @@ class TestExporterCollectWithErrorHandling:
         mock_error_handler = MagicMock()
         mock_error_handler.execute = MagicMock(side_effect=lambda fn: fn())
 
-        with patch.object(container, '_error_handler', mock_error_handler):
+        with patch.object(container, "_error_handler", mock_error_handler):
             exporter = Exporter(container)
             exporter._router_info = MagicMock(product_id="RT-AX88U")
             exporter._container._error_handler = mock_error_handler
 
-            with patch.object(exporter, '_collect_metrics'):
+            with patch.object(exporter, "_collect_metrics"):
                 exporter._collect_with_error_handling()
 
         # Check up metric was set to 1
@@ -136,12 +133,12 @@ class TestExporterCollectWithErrorHandling:
         mock_error_handler = MagicMock()
         mock_error_handler.execute.side_effect = RuntimeError("Collection failed")
 
-        with patch.object(container, '_error_handler', mock_error_handler):
+        with patch.object(container, "_error_handler", mock_error_handler):
             exporter = Exporter(container)
             exporter._router_info = MagicMock(product_id="RT-AX88U")
             exporter._container._error_handler = mock_error_handler
 
-            with patch.object(container, 'clear_all_metrics'):
+            with patch.object(container, "clear_all_metrics"):
                 exporter._collect_with_error_handling()
 
         # Check up metric was set to 0
@@ -156,12 +153,12 @@ class TestExporterCollectWithErrorHandling:
         mock_error_handler = MagicMock()
         mock_error_handler.execute.side_effect = RuntimeError("Collection failed")
 
-        with patch.object(container, '_error_handler', mock_error_handler):
+        with patch.object(container, "_error_handler", mock_error_handler):
             exporter = Exporter(container)
             exporter._router_info = MagicMock(product_id="RT-AX88U")
             exporter._container._error_handler = mock_error_handler
 
-            with patch.object(container, 'clear_all_metrics') as mock_clear:
+            with patch.object(container, "clear_all_metrics") as mock_clear:
                 exporter._collect_with_error_handling()
                 mock_clear.assert_called_once()
 
@@ -173,12 +170,12 @@ class TestExporterCollectWithErrorHandling:
         mock_error_handler = MagicMock()
         mock_error_handler.execute = MagicMock(side_effect=lambda fn: fn())
 
-        with patch.object(container, '_error_handler', mock_error_handler):
+        with patch.object(container, "_error_handler", mock_error_handler):
             exporter = Exporter(container)
             exporter._router_info = MagicMock(product_id="RT-AX88U")
             exporter._container._error_handler = mock_error_handler
 
-            with patch.object(exporter, '_collect_metrics'):
+            with patch.object(exporter, "_collect_metrics"):
                 exporter._collect_with_error_handling()
 
         # Check duration metric was recorded
@@ -198,7 +195,7 @@ class TestExporterCollectMetrics:
         mock_router_info = MagicMock()
         exporter._router_info = mock_router_info
 
-        with patch.object(container, 'collect_metrics') as mock_collect:
+        with patch.object(container, "collect_metrics") as mock_collect:
             exporter._collect_metrics()
             mock_collect.assert_called_once_with(mock_router_info)
 
@@ -225,7 +222,7 @@ class TestExporterShutdown:
 
         exporter = Exporter(container)
 
-        with patch.object(container, 'cleanup') as mock_cleanup:
+        with patch.object(container, "cleanup") as mock_cleanup:
             exporter._shutdown()
             mock_cleanup.assert_called_once()
 
@@ -233,12 +230,12 @@ class TestExporterShutdown:
 class TestExporterRun:
     """Tests for the run method."""
 
-    @patch('asus_router_exporter.server.exporter.start_http_server')
-    @patch('asus_router_exporter.server.exporter.time.sleep')
-    @patch('asus_router_exporter.server.exporter.signal.signal')
+    @patch("asus_router_exporter.server.exporter.start_http_server")
+    @patch("asus_router_exporter.server.exporter.time.sleep")
+    @patch("asus_router_exporter.server.exporter.signal.signal")
     def test_run_starts_http_server(self, mock_signal, mock_sleep, mock_start_server):
         registry = CollectorRegistry()
-        config = Config({'exporter': {'port': 9100, 'scrape_interval': 30}})
+        config = Config({"exporter": {"port": 9100, "scrape_interval": 30}})
         container = Container(config, registry)
 
         mock_client = MagicMock()
@@ -251,20 +248,17 @@ class TestExporterRun:
 
         exporter = Exporter(container)
 
-        with patch.object(container, 'cleanup'):
-            try:
-                exporter.run()
-            except KeyboardInterrupt:
-                pass
+        with patch.object(container, "cleanup"):
+            exporter.run()  # KeyboardInterrupt is handled internally by run()
 
         mock_start_server.assert_called_once_with(9100, registry=registry)
 
-    @patch('asus_router_exporter.server.exporter.start_http_server')
-    @patch('asus_router_exporter.server.exporter.time.sleep')
-    @patch('asus_router_exporter.server.exporter.signal.signal')
+    @patch("asus_router_exporter.server.exporter.start_http_server")
+    @patch("asus_router_exporter.server.exporter.time.sleep")
+    @patch("asus_router_exporter.server.exporter.signal.signal")
     def test_run_registers_signal_handlers(self, mock_signal, mock_sleep, mock_start_server):
         registry = CollectorRegistry()
-        config = Config({'exporter': {'port': 8000, 'scrape_interval': 30}})
+        config = Config({"exporter": {"port": 8000, "scrape_interval": 30}})
         container = Container(config, registry)
 
         mock_client = MagicMock()
@@ -277,23 +271,20 @@ class TestExporterRun:
 
         exporter = Exporter(container)
 
-        with patch.object(container, 'cleanup'):
-            try:
-                exporter.run()
-            except KeyboardInterrupt:
-                pass
+        with patch.object(container, "cleanup"):
+            exporter.run()  # KeyboardInterrupt is handled internally by run()
 
         # Check SIGINT and SIGTERM handlers were registered
         signal_calls = [call[0][0] for call in mock_signal.call_args_list]
         assert signal.SIGINT in signal_calls
         assert signal.SIGTERM in signal_calls
 
-    @patch('asus_router_exporter.server.exporter.start_http_server')
-    @patch('asus_router_exporter.server.exporter.time.sleep')
-    @patch('asus_router_exporter.server.exporter.signal.signal')
+    @patch("asus_router_exporter.server.exporter.start_http_server")
+    @patch("asus_router_exporter.server.exporter.time.sleep")
+    @patch("asus_router_exporter.server.exporter.signal.signal")
     def test_run_collects_router_info(self, mock_signal, mock_sleep, mock_start_server):
         registry = CollectorRegistry()
-        config = Config({'exporter': {'port': 8000, 'scrape_interval': 30}})
+        config = Config({"exporter": {"port": 8000, "scrape_interval": 30}})
         container = Container(config, registry)
 
         mock_client = MagicMock()
@@ -306,21 +297,18 @@ class TestExporterRun:
 
         exporter = Exporter(container)
 
-        with patch.object(container, 'cleanup'):
-            try:
-                exporter.run()
-            except KeyboardInterrupt:
-                pass
+        with patch.object(container, "cleanup"):
+            exporter.run()  # KeyboardInterrupt is handled internally by run()
 
         # Router info should have been collected
         mock_client.get_info.assert_called_once()
 
-    @patch('asus_router_exporter.server.exporter.start_http_server')
-    @patch('asus_router_exporter.server.exporter.time.sleep')
-    @patch('asus_router_exporter.server.exporter.signal.signal')
+    @patch("asus_router_exporter.server.exporter.start_http_server")
+    @patch("asus_router_exporter.server.exporter.time.sleep")
+    @patch("asus_router_exporter.server.exporter.signal.signal")
     def test_run_cleanup_on_exit(self, mock_signal, mock_sleep, mock_start_server):
         registry = CollectorRegistry()
-        config = Config({'exporter': {'port': 8000, 'scrape_interval': 30}})
+        config = Config({"exporter": {"port": 8000, "scrape_interval": 30}})
         container = Container(config, registry)
 
         mock_client = MagicMock()
@@ -333,19 +321,15 @@ class TestExporterRun:
 
         exporter = Exporter(container)
 
-        with patch.object(container, 'cleanup') as mock_cleanup:
-            try:
-                exporter.run()
-            except KeyboardInterrupt:
-                pass
-
+        with patch.object(container, "cleanup") as mock_cleanup:
+            exporter.run()  # KeyboardInterrupt is handled internally by run()
             mock_cleanup.assert_called_once()
 
 
 class TestCreateExporter:
     """Tests for create_exporter factory function."""
 
-    @patch('asus_router_exporter.server.exporter.Container')
+    @patch("asus_router_exporter.server.exporter.Container")
     def test_create_exporter_from_env(self, mock_container_cls):
         mock_container = MagicMock()
         mock_container.config = Config.from_env()
@@ -359,7 +343,7 @@ class TestCreateExporter:
         mock_container.initialize.assert_called_once()
         assert isinstance(exporter, Exporter)
 
-    @patch('asus_router_exporter.server.exporter.Container')
+    @patch("asus_router_exporter.server.exporter.Container")
     def test_create_exporter_from_config(self, mock_container_cls):
         mock_container = MagicMock()
         mock_container.config = Config.from_env()
@@ -371,7 +355,7 @@ class TestCreateExporter:
         mock_container_cls.from_config.assert_called_once_with("config.yaml")
         assert isinstance(exporter, Exporter)
 
-    @patch('asus_router_exporter.server.exporter.Container')
+    @patch("asus_router_exporter.server.exporter.Container")
     def test_create_exporter_with_overrides(self, mock_container_cls):
         mock_config = MagicMock()
         mock_container = MagicMock()
@@ -380,11 +364,7 @@ class TestCreateExporter:
         mock_container_cls.from_env.return_value = mock_container
 
         # The exporter is created to verify the function runs and applies overrides
-        create_exporter(
-            router_host="10.0.0.1",
-            router_auth="admin:pass",
-            metrics_port=9100
-        )
+        create_exporter(router_host="10.0.0.1", router_auth="admin:pass", metrics_port=9100)
 
         # Check config overrides were applied
         mock_config.set.assert_any_call("router.host", "10.0.0.1")
@@ -413,6 +393,6 @@ class TestExporterIntegration:
         assert exporter._router_info is mock_info
 
         # Manually collect metrics
-        with patch.object(container, 'collect_metrics') as mock_collect:
+        with patch.object(container, "collect_metrics") as mock_collect:
             exporter._collect_metrics()
             mock_collect.assert_called_once_with(mock_info)

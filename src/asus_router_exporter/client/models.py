@@ -10,14 +10,17 @@ from enum import Enum, IntEnum, IntFlag, StrEnum
 class TemperatureInfo:
     cpu: float
 
+
 @dataclass
 class CpuInfo:
     total: int
     usage: int
 
+
 @dataclass
 class MemoryInfo:
     """Memory statistics from router (all values in kilobytes)."""
+
     total_kb: int
     """Total memory in kilobytes."""
     used_kb: int
@@ -25,10 +28,12 @@ class MemoryInfo:
     free_kb: int
     """Free memory in kilobytes."""
 
+
 @dataclass
 class UptimeInfo:
     systime: datetime
     boottime: int
+
 
 @dataclass
 class RebootScheduleConf:
@@ -53,6 +58,7 @@ class RebootScheduleInfo:
     until_ms: int
     schedule: RebootScheduleConf
 
+
 @dataclass
 class ThroughputInfo:
     total_upload_bytes: int
@@ -72,6 +78,7 @@ class WifiBand(IntEnum):
     _5G = 1
     _6G = 4
     _60G = 6
+
 
 @dataclass
 class WifiInfo:
@@ -99,7 +106,7 @@ class WifiUnit(IntEnum):
     WL_2G = 0
     WL_5G = 1
     WL_5G_2 = 2
-    WL_6G = 3 #???
+    WL_6G = 3  # ???
 
 
 class WifiAuthMode(StrEnum):
@@ -125,6 +132,7 @@ class WifiMfp(IntEnum):
     """
     Protected Management Frames
     """
+
     DISABLE = 0
     CAPABLE = 1
     REQUIRED = 2
@@ -134,9 +142,11 @@ class WifiWpsWep(IntEnum):
     """
     Wired Equivalent Privacy
     """
+
     NONE = 0
     WEP_64b = 1
     WEP_128b = 2
+
 
 @dataclass
 class WifiBandInfo:
@@ -152,11 +162,12 @@ class WifiBandInfo:
 
 
 class DualWanOrigin(StrEnum):
-    NONE = 'none'
-    WAN = 'wan'
-    LAN = 'lan'
-    USB = 'usb'
-    DSL = 'dsl'
+    NONE = "none"
+    WAN = "wan"
+    LAN = "lan"
+    USB = "usb"
+    DSL = "dsl"
+
 
 @dataclass
 class DualWanInfo:
@@ -174,6 +185,7 @@ class QosType(IntEnum):
     BANDWIDTH_LIMITER = 2
     GEFORCE = 3
     cake = 9
+
 
 @dataclass
 class RouterInfo:
@@ -201,11 +213,8 @@ class RouterInfo:
 
 
 class RouterFeatureCapabilities:
-
     def __init__(self, cap):
-        self.caps: dict[str, int] = {
-            str(k): int(v) for k, v in cap.items()
-        }
+        self.caps: dict[str, int] = {str(k): int(v) for k, v in cap.items()}
 
     def __getitem__(self, key: str) -> int:
         return self.caps.get(key, 0)
@@ -295,6 +304,7 @@ class WanMode(StrEnum):
     FAIL_BACK = "fb"
     LOAD_BALANCE = "lb"
 
+
 @dataclass
 class WanInfo:
     status: WanStatus
@@ -302,6 +312,7 @@ class WanInfo:
     active: bool
     ipaddr: str | None = None
     proto: WanProtoType | None = None
+
 
 @dataclass
 class NetworkWanInfo:
@@ -343,6 +354,7 @@ class LinkInternet(IntEnum):
     TESTING = 1
     ONLINE = 2
 
+
 @dataclass
 class WanConnectionInfo:
     state: WanState
@@ -353,11 +365,12 @@ class WanConnectionInfo:
     @property
     def is_connected(self) -> bool:
         return (
-            self.link_internet == LinkInternet.ONLINE and
-            self.state == WanState.CONNECTED and
-            self.substate == WanSubState.OK and
-            self.auxstate == WanAuxState.CONNECTED
+            self.link_internet == LinkInternet.ONLINE
+            and self.state == WanState.CONNECTED
+            and self.substate == WanSubState.OK
+            and self.auxstate == WanAuxState.CONNECTED
         )
+
 
 @dataclass
 class DslInfo:
@@ -377,11 +390,13 @@ class LanProtoType(StrEnum):
     L2TP = "l2tp"
     PPTP = "pptp"
 
+
 @dataclass
 class LanInfo:
     state: LanState
     ipaddr: str
     proto: LanProtoType
+
 
 class PortCapability(IntFlag):
     WAN = 1 << 0
@@ -407,6 +422,7 @@ class PortGroup(StrEnum):
     WAN = "W"
     LAN = "L"
     USB = "U"
+
 
 class EthernetRate(Enum):
     RATE_10 = (10, "10 Mbps")
@@ -451,9 +467,11 @@ class UsbRate(Enum):
                 return rate
         return None
 
+
 @dataclass
 class PortInfo:
     """Detailed info about a single port."""
+
     id: str
     plugged: bool
     capability: PortCapability
@@ -606,10 +624,7 @@ class ClientBrand(Enum):
 
     @staticmethod
     def find_by_types(device_type: int, os_type: int) -> list[ClientBrand]:
-        return [
-            b for b in ClientBrand
-            if b.device_type == device_type and b.os_type == os_type
-        ]
+        return [b for b in ClientBrand if b.device_type == device_type and b.os_type == os_type]
 
 
 class ClientDeviceCategory(Enum):
@@ -663,10 +678,7 @@ class ClientDeviceCategory(Enum):
 
     @staticmethod
     def find_by_types(device_type: int, os_type: int) -> list[ClientDeviceCategory]:
-        return [
-            c for c in ClientDeviceCategory
-            if c.device_type == device_type and c.os_type == os_type
-        ]
+        return [c for c in ClientDeviceCategory if c.device_type == device_type and c.os_type == os_type]
 
 
 @dataclass
@@ -700,6 +712,7 @@ class BaseClientInfo:
 @dataclass(kw_only=True)
 class ClientInfo(BaseClientInfo):
     """Detailed info about a single client."""
+
     ipaddr: str
     interface: ClientInterface
     op_mode: ClientOperationMode | None

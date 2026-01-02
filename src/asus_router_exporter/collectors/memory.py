@@ -68,13 +68,9 @@ class MemoryCollector(BaseCollector):
         )
         self._register_metric(self._used_percent)
 
-    def _collect_metrics(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def _collect_metrics(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """Collect memory metrics from router."""
-        product_id = getattr(router_info, 'product_id', 'unknown')
+        product_id = getattr(router_info, "product_id", "unknown")
 
         try:
             mem = router_client.get_memory_usage()
@@ -84,9 +80,9 @@ class MemoryCollector(BaseCollector):
             return
 
         # Convert KB to bytes
-        total_bytes = self._kb_to_bytes(getattr(mem, 'total_kb', None))
-        used_bytes = self._kb_to_bytes(getattr(mem, 'used_kb', None))
-        free_bytes = self._kb_to_bytes(getattr(mem, 'free_kb', None))
+        total_bytes = self._kb_to_bytes(getattr(mem, "total_kb", None))
+        used_bytes = self._kb_to_bytes(getattr(mem, "used_kb", None))
+        free_bytes = self._kb_to_bytes(getattr(mem, "free_kb", None))
 
         self._set_gauge_safe(self._total_bytes.labels(product_id=product_id), total_bytes)
         self._set_gauge_safe(self._used_bytes.labels(product_id=product_id), used_bytes)
@@ -102,9 +98,9 @@ class MemoryCollector(BaseCollector):
         logger.debug(
             "[%s] Memory: total=%s, used=%s, free=%s",
             product_id,
-            getattr(mem, 'total_kb', 'N/A'),
-            getattr(mem, 'used_kb', 'N/A'),
-            getattr(mem, 'free_kb', 'N/A')
+            getattr(mem, "total_kb", "N/A"),
+            getattr(mem, "used_kb", "N/A"),
+            getattr(mem, "free_kb", "N/A"),
         )
 
     def _set_gauge_nan(self, product_id: str) -> None:

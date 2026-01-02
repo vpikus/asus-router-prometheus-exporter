@@ -189,13 +189,9 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
         )
         self._register_metric(self._amesh_role)
 
-    def _collect_metrics(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def _collect_metrics(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """Collect client metrics from router."""
-        product_id = getattr(router_info, 'product_id', 'unknown')
+        product_id = getattr(router_info, "product_id", "unknown")
 
         # Clear metrics to prevent duplicates when clients move between
         # AIMesh nodes or change wireless interface
@@ -216,41 +212,43 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
         """Collect metrics for a single client."""
         # Determine interface based on client type
         if isinstance(client, ClientInfo):
-            interface = getattr(client, 'interface', None)
-            ipaddr = getattr(client, 'ipaddr', '')
+            interface = getattr(client, "interface", None)
+            ipaddr = getattr(client, "ipaddr", "")
         else:
-            interface = getattr(client, 'last_conn_interface', None)
-            ipaddr = ''
+            interface = getattr(client, "last_conn_interface", None)
+            ipaddr = ""
 
         # Get interface label
-        interface_label = interface.label if interface and hasattr(interface, 'label') else 'unknown'
+        interface_label = interface.label if interface and hasattr(interface, "label") else "unknown"
 
         # Get amesh info
-        amesh_info = getattr(client, 'amesh_info', None)
-        amesh_pap_mac = getattr(amesh_info, 'pap_mac', '') if amesh_info else ''
+        amesh_info = getattr(client, "amesh_info", None)
+        amesh_pap_mac = getattr(amesh_info, "pap_mac", "") if amesh_info else ""
 
         # Get client name (prefer nick_name, then name, then vendor)
-        nick_name = getattr(client, 'nick_name', '') or ''
-        name = getattr(client, 'name', '') or ''
-        vendor = getattr(client, 'vendor', '') or ''
-        client_name = next((s for s in [nick_name, name, vendor] if s.strip()), 'unknown')
+        nick_name = getattr(client, "nick_name", "") or ""
+        name = getattr(client, "name", "") or ""
+        vendor = getattr(client, "vendor", "") or ""
+        client_name = next((s for s in [nick_name, name, vendor] if s.strip()), "unknown")
 
         # Build labels
         labels = {
             "product_id": product_id,
-            "client_mac": getattr(client, 'mac', ''),
+            "client_mac": getattr(client, "mac", ""),
             "client_conn_interface": interface_label,
             "client_amesh_pap_mac": amesh_pap_mac,
             "client_name": client_name,
         }
 
         # Client info
-        self._client_info.labels(**labels).info({
-            "ipaddr": ipaddr,
-            "name": name,
-            "nick_name": nick_name,
-            "vendor": vendor,
-        })
+        self._client_info.labels(**labels).info(
+            {
+                "ipaddr": ipaddr,
+                "name": name,
+                "nick_name": nick_name,
+                "vendor": vendor,
+            }
+        )
 
         # For full ClientInfo, collect detailed metrics
         if isinstance(client, ClientInfo):
@@ -259,17 +257,13 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
     def _collect_detailed_client_metrics(self, client: Any, labels: dict, interface: Any) -> None:
         """Collect detailed metrics for connected clients."""
         # Operation mode (one-hot)
-        op_mode = getattr(client, 'op_mode', None)
-        self._set_onehot_enum(
-            self._op_mode, labels, op_mode,
-            "client_op_mode", "ClientOperationMode", lambda e: e.name
-        )
+        op_mode = getattr(client, "op_mode", None)
+        self._set_onehot_enum(self._op_mode, labels, op_mode, "client_op_mode", "ClientOperationMode", lambda e: e.name)
 
         # IP method (one-hot)
-        ip_method = getattr(client, 'ip_method', None)
+        ip_method = getattr(client, "ip_method", None)
         self._set_onehot_enum(
-            self._ip_method, labels, ip_method,
-            "client_ip_method", "ClientIpMethod", lambda e: e.value
+            self._ip_method, labels, ip_method, "client_ip_method", "ClientIpMethod", lambda e: e.value
         )
 
         # Interface (one-hot) - different label structure
@@ -277,91 +271,77 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
         self._set_onehot_interface(interface_labels, interface)
 
         # Online status
-        online = getattr(client, 'online', False)
+        online = getattr(client, "online", False)
         self._online.labels(**labels).set(1 if online else 0)
 
         # Last connection timestamp
-        last_conn_ts = getattr(client, 'last_conn_ts', None)
+        last_conn_ts = getattr(client, "last_conn_ts", None)
         if last_conn_ts is not None:
             self._last_conn_ts.labels(**labels).set(last_conn_ts)
         else:
             self._last_conn_ts.labels(**labels).set(float("nan"))
 
         # Connection duration
-        conn_ts = getattr(client, 'conn_ts', None)
+        conn_ts = getattr(client, "conn_ts", None)
         if conn_ts is not None:
             self._conn_duration.labels(**labels).set(conn_ts)
         else:
             self._conn_duration.labels(**labels).set(float("nan"))
 
         # Internet mode (one-hot)
-        internet_mode = getattr(client, 'internet_mode', None)
+        internet_mode = getattr(client, "internet_mode", None)
         self._set_onehot_enum(
-            self._internet_mode, labels, internet_mode,
-            "client_internet_mode", "ClientInternetMode", lambda e: e.value
+            self._internet_mode, labels, internet_mode, "client_internet_mode", "ClientInternetMode", lambda e: e.value
         )
 
         # Internet state
-        internet_state = getattr(client, 'internet_state', None)
+        internet_state = getattr(client, "internet_state", None)
         if internet_state is not None:
-            state_val = internet_state.value if hasattr(internet_state, 'value') else internet_state
+            state_val = internet_state.value if hasattr(internet_state, "value") else internet_state
             self._internet_state.labels(**labels).set(1 if state_val else 0)
 
         # RSSI
-        rssi = getattr(client, 'rssi', None)
+        rssi = getattr(client, "rssi", None)
         if rssi is not None:
             self._rssi_dbm.labels(**labels).set(rssi)
         else:
             self._rssi_dbm.labels(**labels).set(float("nan"))
 
         # RSSI strength (one-hot)
-        rssi_strength = getattr(client, 'rssi_strength', None)
+        rssi_strength = getattr(client, "rssi_strength", None)
         self._set_onehot_enum(
-            self._rssi_strength, labels, rssi_strength,
-            "client_rssi_strength", "RssiStrength", lambda e: e.name
+            self._rssi_strength, labels, rssi_strength, "client_rssi_strength", "RssiStrength", lambda e: e.name
         )
 
         # Traffic statistics (instantaneous throughput values)
-        traffic_stats = getattr(client, 'traffic_stats', None)
+        traffic_stats = getattr(client, "traffic_stats", None)
         if traffic_stats:
-            rx = getattr(traffic_stats, 'rx', 0) or 0
-            tx = getattr(traffic_stats, 'tx', 0) or 0
+            rx = getattr(traffic_stats, "rx", 0) or 0
+            tx = getattr(traffic_stats, "tx", 0) or 0
             self._rx_throughput.labels(**labels).set(rx)
             self._tx_throughput.labels(**labels).set(tx)
 
         # Throughput info (cumulative byte totals)
-        throughput_info = getattr(client, 'throughput_info', None)
+        throughput_info = getattr(client, "throughput_info", None)
         if throughput_info:
-            rx_bytes = getattr(throughput_info, 'total_download_bytes', 0) or 0
-            tx_bytes = getattr(throughput_info, 'total_upload_bytes', 0) or 0
+            rx_bytes = getattr(throughput_info, "total_download_bytes", 0) or 0
+            tx_bytes = getattr(throughput_info, "total_upload_bytes", 0) or 0
             self._rx_bytes.labels(**labels).set(rx_bytes)
             self._tx_bytes.labels(**labels).set(tx_bytes)
 
         # A-Mesh role (one-hot)
-        amesh_info = getattr(client, 'amesh_info', None)
-        amesh_role = getattr(amesh_info, 'role', None) if amesh_info else None
-        self._set_onehot_enum(
-            self._amesh_role, labels, amesh_role,
-            "amesh_role", "ClientAmeshRole", lambda e: e.value
-        )
+        amesh_info = getattr(client, "amesh_info", None)
+        amesh_role = getattr(amesh_info, "role", None) if amesh_info else None
+        self._set_onehot_enum(self._amesh_role, labels, amesh_role, "amesh_role", "ClientAmeshRole", lambda e: e.value)
 
     def _set_onehot_interface(self, labels: dict, current_interface: Any) -> None:
         """Set one-hot encoding for client interface."""
         for iface in ClientInterface:
             value = 1 if iface == current_interface else 0
-            self._interface.labels(
-                **labels,
-                client_conn_interface=iface.label
-            ).set(value)
+            self._interface.labels(**labels, client_conn_interface=iface.label).set(value)
 
     def _set_onehot_enum(
-        self,
-        gauge: Gauge,
-        labels: dict,
-        current_value: Any,
-        label_name: str,
-        enum_name: str,
-        get_label_value: Any
+        self, gauge: Gauge, labels: dict, current_value: Any, label_name: str, enum_name: str, get_label_value: Any
     ) -> None:
         """Set one-hot encoding for an enum value."""
         try:

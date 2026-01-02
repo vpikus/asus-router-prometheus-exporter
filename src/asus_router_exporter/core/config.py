@@ -20,6 +20,7 @@ from .exceptions import ConfigurationError
 # Try to import yaml, but make it optional
 try:
     import yaml
+
     YAML_AVAILABLE = True
 except ImportError:
     YAML_AVAILABLE = False
@@ -67,7 +68,7 @@ class Config:
     """
 
     # Pattern for environment variable substitution: ${VAR} or ${VAR:default}
-    ENV_VAR_PATTERN = re.compile(r'\$\{([^:}]+)(?::([^}]*))?\}')
+    ENV_VAR_PATTERN = re.compile(r"\$\{([^:}]+)(?::([^}]*))?\}")
 
     def __init__(self, data: dict[str, Any]):
         """
@@ -97,8 +98,7 @@ class Config:
             if path.exists():
                 if not YAML_AVAILABLE:
                     raise ConfigurationError(
-                        "PyYAML is required to load YAML config files. "
-                        "Install it with: pip install pyyaml"
+                        "PyYAML is required to load YAML config files. Install it with: pip install pyyaml"
                     )
                 try:
                     with open(path) as f:
@@ -133,7 +133,7 @@ class Config:
         Returns:
             Configuration value or default
         """
-        keys = key.split('.')
+        keys = key.split(".")
         value: Any = self._data
 
         for k in keys:
@@ -154,7 +154,7 @@ class Config:
             key: Configuration key (e.g., 'router.host')
             value: Value to set
         """
-        keys = key.split('.')
+        keys = key.split(".")
         data = self._data
 
         for k in keys[:-1]:
@@ -207,7 +207,7 @@ class Config:
         value = os.getenv(name)
         if value is None:
             return default
-        return value.lower() in ('true', '1', 'yes', 'on')
+        return value.lower() in ("true", "1", "yes", "on")
 
     @staticmethod
     def _env_int(name: str, default: int) -> int:
@@ -292,10 +292,7 @@ class Config:
             },
             "logging": {
                 "level": os.getenv("ASUS_LOG_LEVEL", "INFO"),
-                "format": os.getenv(
-                    "ASUS_LOG_FORMAT",
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                ),
+                "format": os.getenv("ASUS_LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"),
                 "mask_sensitive": cls._env_bool("ASUS_LOG_MASK_SENSITIVE", True),
             },
         }
@@ -333,6 +330,7 @@ class Config:
         Returns:
             String with env vars substituted
         """
+
         def replacer(match: re.Match[str]) -> str:
             var_name = match.group(1)
             default = match.group(2)

@@ -116,13 +116,9 @@ class NetdevCollector(BaseCollector):
         )
         self._register_metric(self._wireless_rx)
 
-    def _collect_metrics(
-        self,
-        router_client: RouterClientProtocol,
-        router_info: Any
-    ) -> None:
+    def _collect_metrics(self, router_client: RouterClientProtocol, router_info: Any) -> None:
         """Collect network device metrics from router."""
-        product_id = getattr(router_info, 'product_id', 'unknown')
+        product_id = getattr(router_info, "product_id", "unknown")
 
         try:
             netdev_info = router_client.get_netdev()
@@ -141,27 +137,19 @@ class NetdevCollector(BaseCollector):
             return
 
         # Bridge metrics
-        self._collect_simple_interface(
-            "bridge", product_id, netdev_info.bridge,
-            self._bridge_tx, self._bridge_rx
-        )
+        self._collect_simple_interface("bridge", product_id, netdev_info.bridge, self._bridge_tx, self._bridge_rx)
 
         # Wired metrics
-        self._collect_simple_interface(
-            "wired", product_id, netdev_info.wired,
-            self._wired_tx, self._wired_rx
-        )
+        self._collect_simple_interface("wired", product_id, netdev_info.wired, self._wired_tx, self._wired_rx)
 
         # Internet metrics (multiple interfaces)
         self._collect_multi_interface(
-            "internet", product_id, netdev_info.internet,
-            self._internet_tx, self._internet_rx
+            "internet", product_id, netdev_info.internet, self._internet_tx, self._internet_rx
         )
 
         # Wireless metrics (multiple interfaces)
         self._collect_multi_interface(
-            "wireless", product_id, netdev_info.wireless,
-            self._wireless_tx, self._wireless_rx
+            "wireless", product_id, netdev_info.wireless, self._wireless_tx, self._wireless_rx
         )
 
         # Update previous samples
@@ -171,7 +159,7 @@ class NetdevCollector(BaseCollector):
             "[%s] Network metrics collected: internet=%d, wireless=%d",
             product_id,
             len(netdev_info.internet) if netdev_info.internet else 0,
-            len(netdev_info.wireless) if netdev_info.wireless else 0
+            len(netdev_info.wireless) if netdev_info.wireless else 0,
         )
 
     def _initialize_counters(self, product_id: str, netdev_info: Any) -> None:
@@ -199,12 +187,7 @@ class NetdevCollector(BaseCollector):
                 self._wireless_rx.labels(product_id=product_id, interface_id=str(iface_id)).inc(0)
 
     def _collect_simple_interface(
-        self,
-        iface_type: str,
-        product_id: str,
-        current: Any,
-        tx_counter: Counter,
-        rx_counter: Counter
+        self, iface_type: str, product_id: str, current: Any, tx_counter: Counter, rx_counter: Counter
     ) -> None:
         """Collect metrics for a simple interface (no interface_id)."""
         prev = self._previous_samples.get(iface_type, {})
@@ -212,8 +195,8 @@ class NetdevCollector(BaseCollector):
         if current is None:
             return
 
-        tx = getattr(current, 'total_upload_bytes', 0)
-        rx = getattr(current, 'total_download_bytes', 0)
+        tx = getattr(current, "total_upload_bytes", 0)
+        rx = getattr(current, "total_download_bytes", 0)
 
         prev_tx = prev.get("tx", 0)
         prev_rx = prev.get("rx", 0)
@@ -226,12 +209,7 @@ class NetdevCollector(BaseCollector):
         rx_counter.labels(product_id=product_id).inc(delta_rx)
 
     def _collect_multi_interface(
-        self,
-        iface_type: str,
-        product_id: str,
-        interfaces: dict,
-        tx_counter: Counter,
-        rx_counter: Counter
+        self, iface_type: str, product_id: str, interfaces: dict, tx_counter: Counter, rx_counter: Counter
     ) -> None:
         """Collect metrics for interfaces with interface_id label."""
         if not interfaces:
@@ -242,8 +220,8 @@ class NetdevCollector(BaseCollector):
         for iface_id, current in interfaces.items():
             prev: dict[str, int] = prev_interfaces.get(str(iface_id), {})
 
-            tx = getattr(current, 'total_upload_bytes', 0)
-            rx = getattr(current, 'total_download_bytes', 0)
+            tx = getattr(current, "total_upload_bytes", 0)
+            rx = getattr(current, "total_download_bytes", 0)
 
             prev_tx = prev.get("tx", 0)
             prev_rx = prev.get("rx", 0)
@@ -261,30 +239,30 @@ class NetdevCollector(BaseCollector):
 
         if netdev_info.bridge:
             samples["bridge"] = {
-                "tx": getattr(netdev_info.bridge, 'total_upload_bytes', 0),
-                "rx": getattr(netdev_info.bridge, 'total_download_bytes', 0)
+                "tx": getattr(netdev_info.bridge, "total_upload_bytes", 0),
+                "rx": getattr(netdev_info.bridge, "total_download_bytes", 0),
             }
 
         if netdev_info.wired:
             samples["wired"] = {
-                "tx": getattr(netdev_info.wired, 'total_upload_bytes', 0),
-                "rx": getattr(netdev_info.wired, 'total_download_bytes', 0)
+                "tx": getattr(netdev_info.wired, "total_upload_bytes", 0),
+                "rx": getattr(netdev_info.wired, "total_download_bytes", 0),
             }
 
         if netdev_info.internet:
             samples["internet"] = {}
             for iface_id, iface in netdev_info.internet.items():
                 samples["internet"][iface_id] = {
-                    "tx": getattr(iface, 'total_upload_bytes', 0),
-                    "rx": getattr(iface, 'total_download_bytes', 0)
+                    "tx": getattr(iface, "total_upload_bytes", 0),
+                    "rx": getattr(iface, "total_download_bytes", 0),
                 }
 
         if netdev_info.wireless:
             samples["wireless"] = {}
             for iface_id, iface in netdev_info.wireless.items():
                 samples["wireless"][iface_id] = {
-                    "tx": getattr(iface, 'total_upload_bytes', 0),
-                    "rx": getattr(iface, 'total_download_bytes', 0)
+                    "tx": getattr(iface, "total_upload_bytes", 0),
+                    "rx": getattr(iface, "total_download_bytes", 0),
                 }
 
         return samples

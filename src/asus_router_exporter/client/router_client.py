@@ -625,7 +625,6 @@ class RouterClient:
 
 
 class RouterClientFactory:
-
     def __init__(self, host):
         if not host.startswith(("http://", "https://")):
             host = f"http://{host}"
