@@ -2451,8 +2451,8 @@
               },
               "right": {
                 "matcher": {
-                  "id": "byName",
-                  "options": "Uploaded"
+                  "id": "byRegexp",
+                  "options": "/.*Uploaded/"
                 }
               }
             },
@@ -2601,14 +2601,14 @@
             "binary": {
               "left": {
                 "matcher": {
-                  "id": "byName",
-                  "options": "Downloaded"
+                  "id": "byRegexp",
+                  "options": "/.*Downloaded/"
                 }
               },
               "right": {
                 "matcher": {
-                  "id": "byName",
-                  "options": "Uploaded"
+                  "id": "byRegexp",
+                  "options": "/.*Uploaded/"
                 }
               }
             },
@@ -3228,7 +3228,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "rate(asus_router_netdev_internet_transmit_bytes_total{product_id=\"$ProductID\", interface_id=\"1\"}[5s]) * 8",
+          "expr": "rate(asus_router_netdev_internet_transmit_bytes_total{product_id=\"$ProductID\", interface_id=\"\"}[5s]) * 8",
           "hide": false,
           "instant": false,
           "legendFormat": "Upload WAN #1",

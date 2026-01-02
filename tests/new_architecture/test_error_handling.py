@@ -263,14 +263,15 @@ class TestCircuitBreaker:
 
         time.sleep(0.02)
 
-        # First two calls should be allowed (but let's make them fail to stay half-open)
-        # Actually, we need to test that exceeding max_calls blocks
-        # Let's use a different approach - make calls that don't transition state
-        with pytest.raises(Exception):
-            breaker.execute(Mock(side_effect=Exception()))
+        # Manually set state to HALF_OPEN and simulate max calls reached
+        breaker._state.state = CircuitState.HALF_OPEN
+        breaker._state.half_open_calls = 2  # At max_calls limit
 
-        # Circuit should be open again after failure in half-open
-        assert breaker.state == CircuitState.OPEN
+        # Next call should be blocked because max half-open calls reached
+        with pytest.raises(CircuitBreakerOpenError) as exc_info:
+            breaker.execute(Mock(return_value="success"))
+
+        assert "max test calls reached" in str(exc_info.value)
 
 
 class TestCompositeErrorHandler:

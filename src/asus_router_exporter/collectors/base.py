@@ -42,12 +42,15 @@ class BaseCollector(ABC):
                 self._usage = Gauge(
                     "asus_router_cpu_usage_percent",
                     "CPU usage percentage",
-                    registry=self._registry
+                    ["product_id"],
+                    registry=self._registry,
                 )
+                self._register_metric(self._usage)
 
             def _collect_metrics(self, router_client, router_info):
+                product_id = getattr(router_info, 'product_id', 'unknown')
                 usage = router_client.get_cpu_usage()
-                self._usage.set(usage)
+                self._usage.labels(product_id=product_id).set(usage)
     """
 
     # Subclasses must define this

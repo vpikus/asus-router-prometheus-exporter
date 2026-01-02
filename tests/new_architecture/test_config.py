@@ -121,17 +121,18 @@ collectors:
   cpu:
     enabled: false
 """
+        # Create and close the file before reading to avoid Windows file locking issues
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             f.write(yaml_content)
-            f.flush()
+            temp_path = f.name
 
-            try:
-                config = Config.load(f.name)
-                assert config.get('router.host') == '10.0.0.1'
-                assert config.get('router.timeout') == 30
-                assert config.is_collector_enabled('cpu') is False
-            finally:
-                os.unlink(f.name)
+        try:
+            config = Config.load(temp_path)
+            assert config.get('router.host') == '10.0.0.1'
+            assert config.get('router.timeout') == 30
+            assert config.is_collector_enabled('cpu') is False
+        finally:
+            os.unlink(temp_path)
 
     def test_load_nonexistent_file_uses_defaults(self):
         config = Config.load('/nonexistent/path.yaml')
@@ -143,18 +144,19 @@ collectors:
 router:
   host: 10.0.0.1
 """
+        # Create and close the file before reading to avoid Windows file locking issues
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             f.write(yaml_content)
-            f.flush()
+            temp_path = f.name
 
-            try:
-                config = Config.load(f.name)
-                # Custom value from YAML
-                assert config.get('router.host') == '10.0.0.1'
-                # Default value (not in YAML)
-                assert config.get('exporter.port') == 8000
-            finally:
-                os.unlink(f.name)
+        try:
+            config = Config.load(temp_path)
+            # Custom value from YAML
+            assert config.get('router.host') == '10.0.0.1'
+            # Default value (not in YAML)
+            assert config.get('exporter.port') == 8000
+        finally:
+            os.unlink(temp_path)
 
 
 class TestConfigCollectorConfig:
