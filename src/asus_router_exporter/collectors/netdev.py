@@ -44,6 +44,9 @@ class NetdevCollector(BaseCollector):
         config: ConfigProviderProtocol,
     ):
         self._previous_samples: dict[str, dict[str, int]] = {}
+        # Track active interface IDs to detect and remove stale metrics
+        self._active_internet_ids: set[str] = set()
+        self._active_wireless_ids: set[str] = set()
         super().__init__(registry, config)
 
     def _create_metrics(self) -> None:
@@ -143,14 +146,26 @@ class NetdevCollector(BaseCollector):
         self._collect_simple_interface("wired", product_id, netdev_info.wired, self._wired_tx, self._wired_rx)
 
         # Internet metrics (multiple interfaces)
+        current_internet_ids = {str(k) for k in netdev_info.internet.keys()} if netdev_info.internet else set()
         self._collect_multi_interface(
             "internet", product_id, netdev_info.internet, self._internet_tx, self._internet_rx
         )
+        # Remove stale internet interface metrics
+        self._remove_stale_interface_metrics(
+            product_id, self._active_internet_ids, current_internet_ids, self._internet_tx, self._internet_rx
+        )
+        self._active_internet_ids = current_internet_ids
 
         # Wireless metrics (multiple interfaces)
+        current_wireless_ids = {str(k) for k in netdev_info.wireless.keys()} if netdev_info.wireless else set()
         self._collect_multi_interface(
             "wireless", product_id, netdev_info.wireless, self._wireless_tx, self._wireless_rx
         )
+        # Remove stale wireless interface metrics
+        self._remove_stale_interface_metrics(
+            product_id, self._active_wireless_ids, current_wireless_ids, self._wireless_tx, self._wireless_rx
+        )
+        self._active_wireless_ids = current_wireless_ids
 
         # Update previous samples
         self._previous_samples = self._create_network_samples(netdev_info)
@@ -275,7 +290,34 @@ class NetdevCollector(BaseCollector):
         # Counter wrapped, skip this sample
         return 0
 
+    def _remove_stale_interface_metrics(
+        self,
+        product_id: str,
+        previous_ids: set[str],
+        current_ids: set[str],
+        tx_counter: Counter,
+        rx_counter: Counter,
+    ) -> None:
+        """Remove metrics for interfaces that are no longer present.
+
+        When network interfaces disappear (e.g., WAN failover, interface reconfiguration),
+        their metrics would remain with stale values. This method removes those metrics
+        to prevent confusion in dashboards and alerting.
+        """
+        stale_ids = previous_ids - current_ids
+        for iface_id in stale_ids:
+            # Remove the labeled metric from the counter's internal storage
+            tx_labels = (product_id, iface_id)
+            rx_labels = (product_id, iface_id)
+            if tx_labels in tx_counter._metrics:
+                del tx_counter._metrics[tx_labels]
+            if rx_labels in rx_counter._metrics:
+                del rx_counter._metrics[rx_labels]
+            logger.debug("[%s] Removed stale metrics for interface %s", product_id, iface_id)
+
     def cleanup(self) -> None:
         """Clean up collector and reset state."""
         super().cleanup()
         self._previous_samples.clear()
+        self._active_internet_ids.clear()
+        self._active_wireless_ids.clear()

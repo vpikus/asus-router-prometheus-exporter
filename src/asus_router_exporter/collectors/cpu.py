@@ -43,7 +43,13 @@ class CPUCollector(BaseCollector):
         registry: CollectorRegistry,
         config: ConfigProviderProtocol,
     ):
-        # Track previous samples for percentage calculation
+        # Track previous samples for percentage calculation.
+        # Design Note: This dict is inherently bounded because:
+        # 1. Keys are "{product_id}:{cpu_id}" - typically 1-4 CPUs per router
+        # 2. Single-router architecture means one product_id
+        # 3. Routers have fixed CPU counts that don't change at runtime
+        # 4. cleanup() properly clears this on shutdown
+        # Therefore unbounded growth is not a concern here.
         self._previous_samples: dict[str, dict[str, int]] = {}
         super().__init__(registry, config)
 

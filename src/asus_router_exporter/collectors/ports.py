@@ -12,10 +12,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from prometheus_client import Gauge, Info
+from prometheus_client import CollectorRegistry, Gauge, Info
 
 from ..client.models import PortGroup
-from ..core.protocols import RouterClientProtocol
+from ..core.protocols import ConfigProviderProtocol, RouterClientProtocol
 from .base import BaseCollector
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,15 @@ class PortsCollector(BaseCollector):
     """
 
     name = "ports"
+
+    def __init__(
+        self,
+        registry: CollectorRegistry,
+        config: ConfigProviderProtocol,
+    ):
+        # Track active port IDs to detect and remove stale metrics
+        self._active_port_ids: set[str] = set()
+        super().__init__(registry, config)
 
     def _create_metrics(self) -> None:
         """Create port metrics."""
@@ -93,10 +102,22 @@ class PortsCollector(BaseCollector):
         ports_info = getattr(router_info, "ports_info", None)
         if not ports_info:
             logger.debug("[%s] No port info available", product_id)
+            # If no ports, remove all previously tracked port metrics
+            if self._active_port_ids:
+                self._remove_stale_port_metrics(product_id, self._active_port_ids, set())
+                self._active_port_ids.clear()
             return
 
+        # Collect current port IDs
+        current_port_ids: set[str] = set()
         for port_info in ports_info:
+            port_id = str(getattr(port_info, "id", "unknown"))
+            current_port_ids.add(port_id)
             self._collect_port_metrics(product_id, port_info)
+
+        # Remove stale port metrics
+        self._remove_stale_port_metrics(product_id, self._active_port_ids, current_port_ids)
+        self._active_port_ids = current_port_ids
 
         logger.debug("[%s] Port metrics collected: %d ports", product_id, len(ports_info))
 
@@ -137,3 +158,36 @@ class PortsCollector(BaseCollector):
         for group in PortGroup:
             value = 1 if group == current_group else 0
             self._port_group.labels(product_id=product_id, port_id=port_id, port_group=group.name).set(value)
+
+    def _remove_stale_port_metrics(
+        self, product_id: str, previous_ids: set[str], current_ids: set[str]
+    ) -> None:
+        """Remove metrics for ports that are no longer present.
+
+        When ports disappear (e.g., USB port unplugged, configuration changes),
+        their metrics would remain with stale values. This method removes those
+        metrics to prevent confusion in dashboards and alerting.
+        """
+        stale_ids = previous_ids - current_ids
+        for port_id in stale_ids:
+            labels = (product_id, port_id)
+            # Remove from all gauge metrics
+            for gauge in [self._plugged, self._link_rate, self._max_rate, self._slow_speed]:
+                if labels in gauge._metrics:
+                    del gauge._metrics[labels]
+
+            # Remove port_group metrics (has additional label)
+            keys_to_remove = [k for k in self._port_group._metrics.keys() if k[:2] == labels]
+            for key in keys_to_remove:
+                del self._port_group._metrics[key]
+
+            # Remove port info metrics
+            if labels in self._port_info._metrics:
+                del self._port_info._metrics[labels]
+
+            logger.debug("[%s] Removed stale metrics for port %s", product_id, port_id)
+
+    def cleanup(self) -> None:
+        """Clean up collector and reset state."""
+        super().cleanup()
+        self._active_port_ids.clear()

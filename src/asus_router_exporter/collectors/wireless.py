@@ -13,10 +13,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from prometheus_client import Gauge, Info
+from prometheus_client import CollectorRegistry, Gauge, Info
 
 from ..client import models as client_models
-from ..core.protocols import RouterClientProtocol
+from ..core.protocols import ConfigProviderProtocol, RouterClientProtocol
 from .base import BaseCollector
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,15 @@ class WirelessCollector(BaseCollector):
     """
 
     name = "wireless"
+
+    def __init__(
+        self,
+        registry: CollectorRegistry,
+        config: ConfigProviderProtocol,
+    ):
+        # Track active wireless bands to detect and remove stale metrics
+        self._active_bands: set[str] = set()
+        super().__init__(registry, config)
 
     def _create_metrics(self) -> None:
         """Create wireless metrics."""
@@ -114,11 +123,22 @@ class WirelessCollector(BaseCollector):
         smart_connect = getattr(wireless_info, "smart_connect_enabled", False)
         self._smart_connect.labels(product_id=product_id).set(1 if smart_connect else 0)
 
-        # Collect band-specific metrics
-        self._collect_band_metrics(product_id, "0", getattr(wireless_info, "band_2G_info", None))
-        self._collect_band_metrics(product_id, "1", getattr(wireless_info, "band_5G_info", None))
-        self._collect_band_metrics(product_id, "2", getattr(wireless_info, "band_5G_2_info", None))
-        self._collect_band_metrics(product_id, "3", getattr(wireless_info, "band_6G_info", None))
+        # Collect band-specific metrics and track which bands are active
+        current_bands: set[str] = set()
+        bands = [
+            ("0", getattr(wireless_info, "band_2G_info", None)),
+            ("1", getattr(wireless_info, "band_5G_info", None)),
+            ("2", getattr(wireless_info, "band_5G_2_info", None)),
+            ("3", getattr(wireless_info, "band_6G_info", None)),
+        ]
+        for wl_unit, band_info in bands:
+            if band_info is not None:
+                current_bands.add(wl_unit)
+                self._collect_band_metrics(product_id, wl_unit, band_info)
+
+        # Remove stale band metrics
+        self._remove_stale_band_metrics(product_id, self._active_bands, current_bands)
+        self._active_bands = current_bands
 
         logger.debug("[%s] Wireless metrics collected", product_id)
 
@@ -178,3 +198,37 @@ class WirelessCollector(BaseCollector):
                 )
         else:
             gauge.labels(product_id=product_id, wl_unit=wl_unit, **{label_name: str(current_value)}).set(1)
+
+    def _remove_stale_band_metrics(
+        self, product_id: str, previous_bands: set[str], current_bands: set[str]
+    ) -> None:
+        """Remove metrics for wireless bands that are no longer available.
+
+        When wireless bands become unavailable (e.g., radio disabled, configuration
+        change), their metrics would remain with stale values. This method removes
+        those metrics to prevent confusion in dashboards and alerting.
+        """
+        stale_bands = previous_bands - current_bands
+        for wl_unit in stale_bands:
+            labels = (product_id, wl_unit)
+
+            # Remove band info metric
+            if labels in self._band_info._metrics:
+                del self._band_info._metrics[labels]
+
+            # Remove ssid_hidden metric
+            if labels in self._ssid_hidden._metrics:
+                del self._ssid_hidden._metrics[labels]
+
+            # Remove one-hot metrics (have additional labels)
+            for gauge in [self._band_mode, self._auth_mode, self._crypto]:
+                keys_to_remove = [k for k in gauge._metrics.keys() if k[:2] == labels]
+                for key in keys_to_remove:
+                    del gauge._metrics[key]
+
+            logger.debug("[%s] Removed stale metrics for wireless band %s", product_id, wl_unit)
+
+    def cleanup(self) -> None:
+        """Clean up collector and reset state."""
+        super().cleanup()
+        self._active_bands.clear()

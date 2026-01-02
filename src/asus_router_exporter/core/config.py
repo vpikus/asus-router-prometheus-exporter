@@ -74,6 +74,17 @@ class Config:
         """
         Initialize configuration.
 
+        Design Note on Validation:
+            This config module intentionally does not validate bounds (e.g., port
+            ranges, timeout positivity). This is by design because:
+            1. External validation occurs at use time (OS rejects invalid ports
+               when binding, requests library handles invalid timeouts)
+            2. Components that consume config values can validate in context
+            3. Adding bounds validation here would duplicate logic and add
+               complexity without meaningful safety benefits
+            4. Invalid values will fail fast with clear error messages from the
+               actual consumer (e.g., "Cannot bind to port -1")
+
         Args:
             data: Configuration dictionary
         """

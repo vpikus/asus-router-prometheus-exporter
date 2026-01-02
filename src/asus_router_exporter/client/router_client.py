@@ -102,6 +102,19 @@ class RouterClient:
     session: requests.Session
     _auth_token: str = ""
 
+    def close(self) -> None:
+        """Close the underlying session and release resources."""
+        if self.session is not None:
+            self.session.close()
+
+    def __enter__(self) -> RouterClient:
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - closes session."""
+        self.close()
+
     def _reauthenticate(self) -> None:
         """Re-authenticate with the router to get a new session."""
         if not self._auth_token:
@@ -209,6 +222,14 @@ class RouterClient:
             self._reauthenticate()
             # Retry once after re-authentication
             return func(*args, **kwargs)
+        except requests.exceptions.HTTPError as e:
+            # Handle HTTP-level auth failures (401/403) that bypass JSON error check
+            if e.response is not None and e.response.status_code in (401, 403):
+                if not self._auth_token:
+                    raise AuthenticationError("HTTP authentication failed") from e
+                self._reauthenticate()
+                return func(*args, **kwargs)
+            raise
 
     def get_core_temp(self) -> TemperatureInfo:
         return self._request_with_reauth(self._get_core_temp_impl)

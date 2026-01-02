@@ -382,3 +382,5 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
     def cleanup(self) -> None:
         """Clean up collector and reset state."""
         super().cleanup()
+        # Clear mixin state from LabeledMetricsMixin
+        self._active_labels.clear()
