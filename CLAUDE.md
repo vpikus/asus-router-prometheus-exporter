@@ -87,7 +87,7 @@ src/asus_router_exporter/
    - Lazy instantiation of expensive resources
 
 3. **Error Handling** (`core/error_handling.py`)
-   - `RetryHandler`: Exponential backoff retry
+   - `RetryHandler`: Exponential backoff retry (skips non-recoverable auth errors)
    - `CircuitBreaker`: Fail-fast pattern for fault tolerance
    - `CompositeErrorHandler`: Combines both strategies
 
@@ -98,9 +98,22 @@ src/asus_router_exporter/
    - Stale metric cleanup when interfaces/clients disappear
 
 5. **Router Client** (`client/router_client.py`)
-   - Auto re-authentication on session expiry (HTTP 401/403)
+   - Auto re-authentication on session expiry (error_status 1-2)
    - Session management with `close()` method
    - urllib3 retries disabled to allow application-level retry control
+   - Smart authentication error handling to prevent account lockout
+
+6. **Authentication Exceptions** (`core/exceptions.py`)
+   Router returns `error_status` codes that map to specific exceptions:
+   - `SessionExpiredError` (error_status 1-2): Recoverable, triggers re-auth
+   - `InvalidCredentialsError` (error_status 3, 7): NOT recoverable, no retry
+   - `CaptchaRequiredError` (captcha_on=1): NOT recoverable, requires router config change
+   - `AccountLockedError` (error_status 11): NOT recoverable, requires factory reset
+   - `AuthenticationBlockedError` (error_status 4-6, 8-10, 12+): NOT recoverable
+
+   **Important**: CAPTCHA check takes priority over error_status. Non-recoverable errors
+   are never retried by `RetryHandler` to prevent triggering account lockout (which
+   happens after 5 failed attempts at error_status 7, and requires factory reset at 11).
 
 **Collector Pattern:**
 ```python

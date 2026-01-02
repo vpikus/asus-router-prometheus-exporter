@@ -19,7 +19,7 @@ from asus_router_exporter.client.models import (
     WanSubState,
     WifiBand,
 )
-from asus_router_exporter.core.exceptions import AuthenticationError
+from asus_router_exporter.core.exceptions import AuthenticationError, SessionExpiredError
 from tests.fixtures import (
     CORE_TEMP_RESPONSE,
     CPU_USAGE_RESPONSE,
@@ -316,5 +316,5 @@ class TestRouterClientHandleResponse:
     def test_handle_response_auth_error(self):
         client = RouterClient(host="http://test", session=requests.Session())
         response = create_mock_response(LOGIN_ERROR_RESPONSE)
-        with pytest.raises(AuthenticationError):
+        with pytest.raises(SessionExpiredError):
             client._handle_response(response)

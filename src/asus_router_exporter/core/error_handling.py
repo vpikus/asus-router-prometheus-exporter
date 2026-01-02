@@ -16,7 +16,7 @@ from enum import Enum
 from threading import Lock
 from typing import Any
 
-from .exceptions import CircuitBreakerOpenError, RetryExhaustedError
+from .exceptions import AuthenticationError, CircuitBreakerOpenError, RetryExhaustedError
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,12 @@ class RetryHandler:
 
         Raises:
             RetryExhaustedError: If all retry attempts fail
+            AuthenticationError: If a non-recoverable auth error occurs (not retried)
+
+        Note:
+            AuthenticationError subclasses with recoverable=False are NOT retried
+            to prevent account lockout. These include InvalidCredentialsError,
+            CaptchaRequiredError, AccountLockedError, and AuthenticationBlockedError.
         """
         if not self.config.enabled:
             return func(*args, **kwargs)
@@ -81,6 +87,18 @@ class RetryHandler:
             try:
                 return func(*args, **kwargs)
             except self.config.retryable_exceptions as e:
+                # Don't retry non-recoverable authentication errors to prevent account lockout.
+                # These include InvalidCredentialsError, CaptchaRequiredError, AccountLockedError,
+                # and AuthenticationBlockedError - all have recoverable=False.
+                if isinstance(e, AuthenticationError) and not e.recoverable:
+                    logger.error(
+                        "Non-recoverable authentication error (attempt %d/%d): %s. Not retrying.",
+                        attempt,
+                        self.config.max_attempts,
+                        str(e),
+                    )
+                    raise
+
                 last_error = e
                 if attempt < self.config.max_attempts:
                     logger.warning(

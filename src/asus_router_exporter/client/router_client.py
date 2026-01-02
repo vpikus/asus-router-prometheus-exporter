@@ -12,7 +12,14 @@ from datetime import datetime, timedelta
 import requests
 from requests.adapters import HTTPAdapter
 
-from ..core.exceptions import AuthenticationError
+from ..core.exceptions import (
+    AccountLockedError,
+    AuthenticationBlockedError,
+    AuthenticationError,
+    CaptchaRequiredError,
+    InvalidCredentialsError,
+    SessionExpiredError,
+)
 from ..utils.logging import SensitiveFormatter, mask_sensitive_data
 from ..utils.parsing import (
     ids_for,
@@ -123,6 +130,23 @@ def _create_session() -> requests.Session:
 
 @dataclass
 class RouterClient:
+    """
+    HTTP client for ASUS router web API.
+
+    Threading Model:
+        This client is NOT thread-safe. Session replacement during re-authentication
+        (in _reauthenticate) is not atomic, and concurrent calls from multiple threads
+        may encounter stale or closed sessions.
+
+        In this application, this is safe because:
+        - The main thread owns the RouterClient and runs all collection operations
+        - The Prometheus HTTP server thread only reads metric values (thread-safe at
+          the prometheus_client level), never the RouterClient
+
+        If you need to use this client from multiple threads, wrap calls in a Lock
+        or create separate client instances per thread.
+    """
+
     host: str
     session: requests.Session
     _auth_token: str = ""
@@ -141,9 +165,17 @@ class RouterClient:
         self.close()
 
     def _reauthenticate(self) -> None:
-        """Re-authenticate with the router to get a new session."""
+        """Re-authenticate with the router to get a new session.
+
+        Raises:
+            SessionExpiredError: If re-authentication fails but can be retried
+            CaptchaRequiredError: If CAPTCHA is required
+            InvalidCredentialsError: If credentials are invalid
+            AccountLockedError: If account is locked
+            AuthenticationBlockedError: For other auth errors
+        """
         if not self._auth_token:
-            raise AuthenticationError("Cannot re-authenticate: no auth token stored")
+            raise SessionExpiredError("Cannot re-authenticate: no auth token stored")
 
         logger.info("Session expired, re-authenticating...")
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -161,6 +193,16 @@ class RouterClient:
             masked_body = mask_sensitive_data(response.text)
             logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
             response.raise_for_status()
+
+            # Check for auth error in response (login.cgi returns JSON with error_status on failure)
+            try:
+                data = response.json()
+                if "error_status" in data:
+                    self._handle_auth_error(data)
+            except ValueError:
+                # Success - login.cgi returns non-JSON on successful login.
+                # Catch ValueError (parent of json.JSONDecodeError and requests.JSONDecodeError)
+                pass
         except Exception:
             new_session.close()
             raise
@@ -182,7 +224,11 @@ class RouterClient:
             Response text
 
         Raises:
-            AuthenticationError: If authentication failed (session expired)
+            SessionExpiredError: If session expired (error_status 1-2, recoverable)
+            CaptchaRequiredError: If CAPTCHA is required (captcha_on=1)
+            InvalidCredentialsError: If credentials are invalid (error_status 3, 7)
+            AccountLockedError: If account is locked (error_status 11)
+            AuthenticationBlockedError: For other auth errors (error_status 4-10, 12+)
         """
         # Mask sensitive data BEFORE truncating to prevent partial field leakage
         masked_body = mask_sensitive_data(response.text)
@@ -191,13 +237,100 @@ class RouterClient:
         try:
             data = response.json()
             if "error_status" in data:
-                raise AuthenticationError("Router authentication failed (session expired)")
+                self._handle_auth_error(data)
         except json.decoder.JSONDecodeError:
             # Intentionally suppressed: Many router endpoints return non-JSON responses
             # (e.g., ajax_coretmp.asp returns JavaScript). We only check for auth errors
             # in JSON responses; non-JSON responses are processed by specific callers.
             pass
         return response.text
+
+    @staticmethod
+    def _handle_auth_error(data: dict) -> None:
+        """
+        Handle authentication error response from router.
+
+        Router returns JSON like:
+        {
+            "error_status": "2",
+            "captcha_on": "0",
+            "last_time_lock_warning": "0"
+        }
+
+        Error status meanings:
+            1: Token is required
+            2: Token is expired, new authentication required
+            3: Invalid credentials
+            4: NOREFERER
+            5: REFERERFAIL
+            7: Incorrect username/password 5 times
+            8: ISLOGOUT
+            9: NOLOGIN
+            10: WRONGCAPTCHA
+            11: Router locked (10 failed attempts, requires factory reset)
+            12+: Unexpected errors
+
+        Args:
+            data: Parsed JSON response containing error_status
+
+        Raises:
+            CaptchaRequiredError: If captcha_on=1
+            SessionExpiredError: If error_status is 1 or 2 and captcha_on=0 (recoverable)
+            InvalidCredentialsError: If error_status is 3 or 7
+            AccountLockedError: If error_status is 11
+            AuthenticationBlockedError: For other error statuses
+        """
+        # Use safe_int to handle empty strings or non-numeric values from router
+        # safe_int returns 0 on ValueError/TypeError
+        error_status = safe_int(data.get("error_status"))
+        captcha_on = safe_int(data.get("captcha_on"))
+
+        # CAPTCHA check takes priority - if CAPTCHA is required, no auth attempt should be made
+        if captcha_on == 1:
+            logger.warning(
+                "Authentication error from router: error_status=%d, captcha_on=%d",
+                error_status,
+                captcha_on,
+            )
+            raise CaptchaRequiredError(
+                f"CAPTCHA is required (error_status={error_status}). "
+                "Please disable CAPTCHA in ASUS Router settings "
+                "(Administration -> System -> Enable Web Access from WAN -> Disable CAPTCHA)"
+            )
+
+        # error_status 0 means no error - return without raising
+        if error_status == 0:
+            return
+
+        # Log warning only for actual errors (after ruling out error_status=0)
+        logger.warning(
+            "Authentication error from router: error_status=%d, captcha_on=%d",
+            error_status,
+            captcha_on,
+        )
+
+        # Recoverable errors (error_status 1 or 2): session expired, can re-authenticate
+        if error_status in (1, 2):
+            raise SessionExpiredError(f"Router session expired (error_status={error_status})")
+
+        # Invalid credentials (error_status 3 or 7)
+        if error_status == 3:
+            raise InvalidCredentialsError(f"Invalid credentials provided (error_status={error_status})")
+        if error_status == 7:
+            raise InvalidCredentialsError(
+                f"Incorrect username or password entered 5 times (error_status={error_status}). "
+                "Further attempts may lock the account."
+            )
+
+        # Account locked (error_status 11)
+        if error_status == 11:
+            raise AccountLockedError(
+                f"Router account is locked due to too many failed login attempts (error_status={error_status}). "
+                "Manual factory reset required (press reset button on router)."
+            )
+
+        # All other errors (4, 5, 8, 9, 10, 12+) - blocked, non-recoverable
+        raise AuthenticationBlockedError(error_status)
 
     def __get_hook(self, name: str, args: str = "") -> str:
         return self._request_with_reauth(self.__get_hook_impl, name, args)
@@ -228,6 +361,10 @@ class RouterClient:
         """
         Execute a request function with automatic re-authentication on session expiry.
 
+        Only attempts re-authentication for recoverable errors (SessionExpiredError).
+        Non-recoverable errors (invalid credentials, CAPTCHA required, account locked)
+        are propagated immediately to prevent account lockout.
+
         Args:
             func: The request function to execute
             *args: Arguments to pass to the function
@@ -237,11 +374,18 @@ class RouterClient:
             The result of the function
 
         Raises:
-            AuthenticationError: If re-authentication also fails
+            SessionExpiredError: If re-authentication also fails
+            CaptchaRequiredError: If CAPTCHA is required (not recoverable)
+            InvalidCredentialsError: If credentials are invalid (not recoverable)
+            AccountLockedError: If account is locked (not recoverable)
+            AuthenticationBlockedError: For other auth errors (not recoverable)
         """
         try:
             return func(*args, **kwargs)
-        except AuthenticationError:
+        except AuthenticationError as e:
+            # Only retry for recoverable errors (session expired)
+            if not e.recoverable:
+                raise  # Non-recoverable: don't attempt re-auth to prevent lockout
             if not self._auth_token:
                 raise  # Can't re-auth without stored token
             self._reauthenticate()
@@ -251,7 +395,7 @@ class RouterClient:
             # Handle HTTP-level auth failures (401/403) that bypass JSON error check
             if e.response is not None and e.response.status_code in (401, 403):
                 if not self._auth_token:
-                    raise AuthenticationError("HTTP authentication failed") from e
+                    raise SessionExpiredError("HTTP authentication failed (no token)") from e
                 self._reauthenticate()
                 return func(*args, **kwargs)
             raise
@@ -788,6 +932,21 @@ class RouterClientFactory:
         self.host = host.rstrip("/")
 
     def auth(self, auth) -> RouterClient:
+        """
+        Authenticate with the router and create a client.
+
+        Args:
+            auth: Authentication string in format "username:password"
+
+        Returns:
+            Authenticated RouterClient instance
+
+        Raises:
+            CaptchaRequiredError: If CAPTCHA is required
+            InvalidCredentialsError: If credentials are invalid
+            AccountLockedError: If account is locked
+            AuthenticationBlockedError: For other auth errors
+        """
         token = base64.b64encode(auth.encode("utf-8")).decode("utf-8")
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
         payload = f"login_authorization={token}"
@@ -805,6 +964,16 @@ class RouterClientFactory:
             masked_body = mask_sensitive_data(response.text)
             logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
             response.raise_for_status()
+
+            # Check for auth error in response (login.cgi returns JSON with error_status on failure)
+            try:
+                data = response.json()
+                if "error_status" in data:
+                    RouterClient._handle_auth_error(data)
+            except json.decoder.JSONDecodeError:
+                # Success - login.cgi returns non-JSON on successful login
+                pass
+
             return RouterClient(self.host, session, _auth_token=token)
         except Exception:
             session.close()
