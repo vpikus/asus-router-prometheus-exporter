@@ -1,27 +1,52 @@
-FROM python:3.11-alpine
+# syntax=docker/dockerfile:1
 
-# Set working directory
+# Stage 1: Build dependencies
+FROM python:3.12-alpine AS builder
+
 WORKDIR /app
 
-# Create virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Install dependencies in virtual environment
+# Install Python dependencies with BuildKit cache for faster rebuilds
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python -m pip install --upgrade pip wheel setuptools && \
+    python -m pip install --prefix=/install -r requirements.txt
 
-# Copy application files
-COPY src/ ./src/
+# Stage 2: Runtime image
+FROM python:3.12-alpine AS runtime
 
-# Set Python path to include package
-ENV PYTHONPATH="/app/src:$PYTHONPATH"
+# Build arguments for labels
+ARG VERSION=dev
+ARG BUILD_DATE
+ARG VCS_REF
 
-# Create non-root user
+# OCI Image Labels (https://github.com/opencontainers/image-spec/blob/main/annotations.md)
+LABEL org.opencontainers.image.title="ASUS Router Prometheus Exporter" \
+      org.opencontainers.image.description="Prometheus metrics exporter for ASUS routers" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.source="https://github.com/vpikus/asus-router-prometheus-exporter" \
+      org.opencontainers.image.url="https://github.com/vpikus/asus-router-prometheus-exporter" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="vpikus"
+
+WORKDIR /app
+
+# Install runtime dependencies
+# ca-certificates: for HTTPS connections to router
+RUN apk add --no-cache ca-certificates
+
+# Create non-root user and data directory for potential future state/logs
 RUN addgroup -g 1000 exporter && \
-    adduser -D -u 1000 -G exporter exporter && \
-    chown -R exporter:exporter /app && \
-    chown -R exporter:exporter /opt/venv
+    adduser -u 1000 -G exporter -s /bin/sh -D exporter && \
+    mkdir -p /app/data && \
+    chown exporter:exporter /app/data
+
+# Copy installed packages from builder
+COPY --from=builder /install /usr/local
+
+# Copy application code
+COPY --chown=exporter:exporter src/ ./src/
 
 # Switch to non-root user
 USER exporter
@@ -29,13 +54,19 @@ USER exporter
 # Expose metrics port
 EXPOSE 8000
 
-# Set environment variables for runtime configuration
-ENV ASUS_METRICS_PORT=8000
-ENV ASUS_LOG_LEVEL=INFO
+# Health check with conservative settings
+# - Start period of 30s allows time for initial router connection
+# - Increased timeout for slow router responses
+HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request, os; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"ASUS_METRICS_PORT\", \"8000\")}/metrics', timeout=10)"
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/metrics').read()" || exit 1
+# Set environment defaults
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH="/app/src" \
+    ASUS_METRICS_PORT=8000 \
+    ASUS_LOG_LEVEL=INFO
 
-# Run the exporter
-CMD ["python", "-m", "asus_router_exporter.cli"]
+# Use ENTRYPOINT for predictable execution; CMD can be overridden for args
+ENTRYPOINT ["python", "-m", "asus_router_exporter.cli"]
+CMD []
