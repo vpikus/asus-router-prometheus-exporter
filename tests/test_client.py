@@ -313,8 +313,8 @@ class TestRouterClientHandleResponse:
         result = client._handle_response(response)
         assert result == '{"data": "value"}'
 
-    def test_handle_response_auth_error(self):
+    def test_parse_json_response_auth_error(self):
+        """Auth error detection happens in _parse_json_response, not _handle_response."""
         client = RouterClient(host="http://test", session=requests.Session())
-        response = create_mock_response(LOGIN_ERROR_RESPONSE)
         with pytest.raises(SessionExpiredError):
-            client._handle_response(response)
+            client._parse_json_response(LOGIN_ERROR_RESPONSE)
