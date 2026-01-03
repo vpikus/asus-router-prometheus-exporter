@@ -656,3 +656,281 @@ class TestContainerIntegration:
         container.cleanup()
         assert container.collectors == []
         assert container._initialized is False
+
+
+class MockCollectorConnectionError(MockCollector):
+    """Mock collector that raises a connection error."""
+
+    name = "mock_collector_connection_error"
+
+    def collect(self, client, router_info):
+        from requests.exceptions import ConnectionError as RequestsConnectionError
+
+        raise RequestsConnectionError("Connection refused")
+
+
+class MockCollectorOSError(MockCollector):
+    """Mock collector that raises an OSError with ECONNREFUSED."""
+
+    name = "mock_collector_oserror"
+
+    def collect(self, client, router_info):
+        import errno
+
+        err = OSError("Connection refused")
+        err.errno = errno.ECONNREFUSED
+        raise err
+
+
+class TestContainerConnectionErrorHandling:
+    """Tests for connection error short-circuit behavior."""
+
+    def test_collect_metrics_short_circuits_on_connection_error(self):
+        """Test that remaining collectors are skipped when connection error occurs."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        container.set_router_client(mock_client)
+
+        # Register connection error collector first, then a normal one
+        container.register_collectors(MockCollectorConnectionError, MockCollector)
+        container.initialize()
+
+        router_info = MagicMock()
+
+        # Should raise RouterConnectionError wrapping the original error
+        import pytest
+
+        from asus_router_exporter.core.exceptions import RouterConnectionError
+        from requests.exceptions import ConnectionError as RequestsConnectionError
+
+        with pytest.raises(RouterConnectionError) as exc_info:
+            container.collect_metrics(router_info)
+
+        # Verify the original exception is preserved as __cause__
+        assert isinstance(exc_info.value.__cause__, RequestsConnectionError)
+        # Verify recoverable=False for retry skipping
+        assert exc_info.value.recoverable is False
+        # First collector raised error, second should NOT have been called
+        assert container.collectors[1].collected is False
+
+    def test_collect_metrics_reraises_connection_error(self):
+        """Test that connection errors are wrapped in RouterConnectionError."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        container.set_router_client(mock_client)
+
+        container.register_collector(MockCollectorConnectionError)
+        container.initialize()
+
+        router_info = MagicMock()
+
+        import pytest
+
+        from asus_router_exporter.core.exceptions import RouterConnectionError
+        from requests.exceptions import ConnectionError as RequestsConnectionError
+
+        with pytest.raises(RouterConnectionError) as exc_info:
+            container.collect_metrics(router_info)
+
+        # Original exception preserved as __cause__
+        assert isinstance(exc_info.value.__cause__, RequestsConnectionError)
+        assert exc_info.value.recoverable is False
+
+    def test_collect_metrics_short_circuits_on_oserror(self):
+        """Test that OSError with connection-related errno triggers short-circuit."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        container.set_router_client(mock_client)
+
+        container.register_collectors(MockCollectorOSError, MockCollector)
+        container.initialize()
+
+        router_info = MagicMock()
+
+        import pytest
+
+        from asus_router_exporter.core.exceptions import RouterConnectionError
+
+        with pytest.raises(RouterConnectionError) as exc_info:
+            container.collect_metrics(router_info)
+
+        # Original OSError preserved as __cause__
+        assert isinstance(exc_info.value.__cause__, OSError)
+        assert exc_info.value.recoverable is False
+        # Second collector should NOT have been called
+        assert container.collectors[1].collected is False
+
+    def test_collect_metrics_does_not_short_circuit_on_regular_error(self):
+        """Test that regular errors don't trigger short-circuit."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        container.set_router_client(mock_client)
+
+        # Regular error collector first, then a normal one
+        container.register_collectors(MockCollectorFailsOnCollect, MockCollector)
+        container.initialize()
+
+        router_info = MagicMock()
+        result = container.collect_metrics(router_info)
+
+        # Should return True (second collector succeeded)
+        assert result is True
+        # Second collector SHOULD have been called despite first failing
+        assert container.collectors[1].collected is True
+
+
+class TestIsConnectionError:
+    """Tests for _is_connection_error helper method."""
+
+    def test_detects_requests_connection_error(self):
+        """Test detection of requests.ConnectionError."""
+        from requests.exceptions import ConnectionError as RequestsConnectionError
+
+        config = Config.from_env()
+        container = Container(config)
+
+        error = RequestsConnectionError("Connection refused")
+        assert container._is_connection_error(error) is True
+
+    def test_detects_builtin_connection_error(self):
+        """Test detection of built-in ConnectionError."""
+        config = Config.from_env()
+        container = Container(config)
+
+        error = ConnectionError("Connection refused")
+        assert container._is_connection_error(error) is True
+
+    def test_detects_oserror_with_econnrefused(self):
+        """Test detection of OSError with ECONNREFUSED errno."""
+        import errno
+
+        config = Config.from_env()
+        container = Container(config)
+
+        error = OSError("Connection refused")
+        error.errno = errno.ECONNREFUSED
+        assert container._is_connection_error(error) is True
+
+    def test_detects_oserror_with_etimedout(self):
+        """Test detection of OSError with ETIMEDOUT errno."""
+        import errno
+
+        config = Config.from_env()
+        container = Container(config)
+
+        error = OSError("Connection timed out")
+        error.errno = errno.ETIMEDOUT
+        assert container._is_connection_error(error) is True
+
+    def test_detects_oserror_with_econnaborted(self):
+        """Test detection of OSError with ECONNABORTED errno."""
+        import errno
+
+        config = Config.from_env()
+        container = Container(config)
+
+        error = OSError("Connection aborted")
+        error.errno = errno.ECONNABORTED
+        assert container._is_connection_error(error) is True
+
+    def test_detects_oserror_with_econnreset(self):
+        """Test detection of OSError with ECONNRESET errno."""
+        import errno
+
+        config = Config.from_env()
+        container = Container(config)
+
+        error = OSError("Connection reset by peer")
+        error.errno = errno.ECONNRESET
+        assert container._is_connection_error(error) is True
+
+    def test_ignores_oserror_with_other_errno(self):
+        """Test that OSError with unrelated errno is not treated as connection error."""
+        import errno
+
+        config = Config.from_env()
+        container = Container(config)
+
+        error = OSError("Permission denied")
+        error.errno = errno.EACCES
+        assert container._is_connection_error(error) is False
+
+    def test_detects_chained_connection_error_via_cause(self):
+        """Test detection of connection error in explicit exception chain (__cause__)."""
+        from requests.exceptions import ConnectionError as RequestsConnectionError
+
+        config = Config.from_env()
+        container = Container(config)
+
+        # Create an explicitly chained exception (raise X from Y)
+        inner = RequestsConnectionError("Connection refused")
+        outer = RuntimeError("Collection failed")
+        outer.__cause__ = inner
+
+        assert container._is_connection_error(outer) is True
+
+    def test_detects_chained_connection_error_via_context(self):
+        """Test detection of connection error in implicit exception chain (__context__)."""
+        from requests.exceptions import ConnectionError as RequestsConnectionError
+
+        config = Config.from_env()
+        container = Container(config)
+
+        # Create an implicitly chained exception (exception during handling)
+        inner = RequestsConnectionError("Connection refused")
+        outer = RuntimeError("Handler failed")
+        outer.__context__ = inner
+
+        assert container._is_connection_error(outer) is True
+
+    def test_ignores_regular_runtime_error(self):
+        """Test that regular RuntimeError is not treated as connection error."""
+        config = Config.from_env()
+        container = Container(config)
+
+        error = RuntimeError("Something went wrong")
+        assert container._is_connection_error(error) is False
+
+    def test_explores_both_cause_and_context_branches(self):
+        """Test that both __cause__ and __context__ branches are explored."""
+        from requests.exceptions import ConnectionError as RequestsConnectionError
+
+        config = Config.from_env()
+        container = Container(config)
+
+        # Create exception with both __cause__ and __context__ pointing to different exceptions
+        # The ConnectionError is only reachable via __context__, not __cause__
+        outer = RuntimeError("Outer error")
+        cause_branch = ValueError("Not a connection error")
+        context_branch = RequestsConnectionError("Connection refused")
+        outer.__cause__ = cause_branch
+        outer.__context__ = context_branch
+
+        # Should find ConnectionError in the __context__ branch
+        assert container._is_connection_error(outer) is True
+
+    def test_handles_cyclic_exception_chain(self):
+        """Test that cyclic exception chains don't cause infinite loops."""
+        config = Config.from_env()
+        container = Container(config)
+
+        # Create a cyclic exception chain (malformed, but should not hang)
+        e1 = RuntimeError("Error 1")
+        e2 = RuntimeError("Error 2")
+        e1.__cause__ = e2
+        e2.__cause__ = e1  # Creates cycle
+
+        # Should return False without hanging
+        assert container._is_connection_error(e1) is False

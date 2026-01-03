@@ -112,9 +112,30 @@ class AuthenticationBlockedError(AuthenticationError):
 
 
 class RouterConnectionError(ExporterError):
-    """Raised when connection to the router fails."""
+    """Raised when connection to the router fails.
 
-    pass
+    Connection errors are not retryable by default because they indicate
+    the router is unreachable (network issue, router offline). Retrying
+    with short delays won't help and should be avoided to trigger the
+    circuit breaker faster.
+    """
+
+    def __init__(
+        self,
+        message: str = "Connection to router failed",
+        *,
+        recoverable: bool = False,
+    ):
+        """
+        Initialize router connection error.
+
+        Args:
+            message: Error description
+            recoverable: If True, retry may succeed. If False (default),
+                        the error should trigger circuit breaker immediately.
+        """
+        super().__init__(message)
+        self.recoverable = recoverable
 
 
 class CollectorError(ExporterError):

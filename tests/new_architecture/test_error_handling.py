@@ -134,6 +134,39 @@ class TestRetryHandler:
         assert result == "success"
         assert mock_func.call_count == 3
 
+    def test_non_recoverable_connection_errors_not_retried(self):
+        """RouterConnectionError with recoverable=False should not be retried."""
+        from asus_router_exporter.core.exceptions import RouterConnectionError
+
+        handler = RetryHandler(RetryConfig(max_attempts=3, initial_delay=0.01))
+
+        # RouterConnectionError has recoverable=False by default, should not be retried
+        mock_func = Mock(side_effect=RouterConnectionError("Router unreachable"))
+        with pytest.raises(RouterConnectionError):
+            handler.execute(mock_func)
+
+        # Should only be called once - no retry attempts
+        assert mock_func.call_count == 1
+
+    def test_recoverable_connection_errors_are_retried(self):
+        """RouterConnectionError with recoverable=True should be retried."""
+        from asus_router_exporter.core.exceptions import RouterConnectionError
+
+        handler = RetryHandler(RetryConfig(max_attempts=3, initial_delay=0.01))
+
+        # Explicitly set recoverable=True (not the default)
+        mock_func = Mock(
+            side_effect=[
+                RouterConnectionError("Temp failure", recoverable=True),
+                RouterConnectionError("Temp failure", recoverable=True),
+                "success",
+            ]
+        )
+        result = handler.execute(mock_func)
+
+        assert result == "success"
+        assert mock_func.call_count == 3
+
 
 class TestCircuitBreaker:
     """Tests for CircuitBreaker."""
