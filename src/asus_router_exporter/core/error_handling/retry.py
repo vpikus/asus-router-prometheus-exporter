@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ...metrics.self_metrics import SelfMetrics
-from ..exceptions import AuthenticationError, RetryExhaustedError
+from ..exceptions import AuthenticationError, RetryExhaustedError, RouterConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +61,14 @@ class RetryHandler:
         Raises:
             RetryExhaustedError: If all retry attempts fail
             AuthenticationError: If a non-recoverable auth error occurs (not retried)
+            RouterConnectionError: If a non-recoverable connection error occurs (not retried)
 
         Note:
-            AuthenticationError subclasses with recoverable=False are NOT retried
-            to prevent account lockout. These include InvalidCredentialsError,
-            CaptchaRequiredError, AccountLockedError, and AuthenticationBlockedError.
+            Exceptions with recoverable=False are NOT retried:
+            - AuthenticationError subclasses (InvalidCredentialsError, CaptchaRequiredError,
+              AccountLockedError, AuthenticationBlockedError) to prevent account lockout.
+            - RouterConnectionError (default recoverable=False) because connection failures
+              indicate router is unreachable and retrying won't help.
         """
         if not self.config.enabled:
             return func(*args, **kwargs)
@@ -82,12 +85,20 @@ class RetryHandler:
             try:
                 return func(*args, **kwargs)
             except self.config.retryable_exceptions as e:
-                # Don't retry non-recoverable authentication errors to prevent account lockout.
-                # These include InvalidCredentialsError, CaptchaRequiredError, AccountLockedError,
-                # and AuthenticationBlockedError - all have recoverable=False.
+                # Don't retry non-recoverable errors - they indicate permanent failures.
+                # AuthenticationError: InvalidCredentialsError, CaptchaRequiredError, etc.
+                # RouterConnectionError: Router unreachable (retrying won't help).
                 if isinstance(e, AuthenticationError) and not e.recoverable:
                     logger.error(
                         "Non-recoverable authentication error (attempt %d/%d): %s. Not retrying.",
+                        attempt,
+                        self.config.max_attempts,
+                        str(e),
+                    )
+                    raise
+                if isinstance(e, RouterConnectionError) and not e.recoverable:
+                    logger.error(
+                        "Non-recoverable connection error (attempt %d/%d): %s. Not retrying.",
                         attempt,
                         self.config.max_attempts,
                         str(e),
