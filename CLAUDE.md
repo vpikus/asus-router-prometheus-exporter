@@ -69,6 +69,9 @@ src/asus_router_exporter/
 ├── client/
 │   ├── router_client.py      # Router HTTP client with auto re-auth
 │   └── models.py             # Data models for router responses
+├── metrics/
+│   ├── __init__.py           # Module exports
+│   └── self_metrics.py       # Exporter self-observability metrics
 └── utils/
     ├── logging.py            # Sensitive data masking formatter
     └── parsing.py            # Parsing helpers
@@ -102,8 +105,18 @@ src/asus_router_exporter/
    - Session management with `close()` method
    - urllib3 retries disabled to allow application-level retry control
    - Smart authentication error handling to prevent account lockout
+   - Cache hit/miss tracking for per-cycle caching
+   - API call performance instrumentation via `@_track_api` decorator
 
-6. **Authentication Exceptions** (`core/exceptions.py`)
+6. **Self-Metrics** (`metrics/self_metrics.py`)
+   - Thread-safe singleton `SelfMetrics` for exporter observability
+   - Circuit breaker state and transition tracking
+   - Retry attempt and exhaustion counters
+   - Cache hit/miss counters per cache key
+   - Per-collector success/error rates and duration
+   - Per-API method performance histograms
+
+7. **Authentication Exceptions** (`core/exceptions.py`)
    Router returns `error_status` codes that map to specific exceptions:
    - `SessionExpiredError` (error_status 1-2): Recoverable, triggers re-auth
    - `InvalidCredentialsError` (error_status 3, 7): NOT recoverable, no retry

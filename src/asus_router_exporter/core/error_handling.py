@@ -16,6 +16,7 @@ from enum import Enum
 from threading import Lock
 from typing import Any
 
+from ..metrics.self_metrics import CircuitBreakerStateValue, SelfMetrics
 from .exceptions import AuthenticationError, CircuitBreakerOpenError, RetryExhaustedError
 
 logger = logging.getLogger(__name__)
@@ -108,10 +109,12 @@ class RetryHandler:
                         str(e),
                         delay,
                     )
+                    SelfMetrics.get_instance().record_retry_attempt()
                     time.sleep(delay)
                     delay = min(delay * self.config.backoff_factor, self.config.max_delay)
                 else:
                     logger.exception("All %d attempts failed", self.config.max_attempts)
+                    SelfMetrics.get_instance().record_retries_exhausted()
 
         # last_error should never be None here since we only reach this point
         # after catching at least one exception, but assert for type safety
@@ -248,6 +251,10 @@ class CircuitBreaker:
                 logger.info("Circuit breaker transitioning to HALF_OPEN")
                 self._state.state = CircuitState.HALF_OPEN
                 self._state.half_open_calls = 0
+                # Record state transition metrics
+                metrics = SelfMetrics.get_instance()
+                metrics.record_circuit_breaker_transition("open", "half_open")
+                metrics.set_circuit_breaker_state(CircuitBreakerStateValue.HALF_OPEN)
 
     def _recovery_timeout_elapsed(self) -> bool:
         """Check if recovery timeout has elapsed."""
@@ -266,24 +273,37 @@ class CircuitBreaker:
             if self._state.state == CircuitState.CLOSED and self._state.failure_count == 0:
                 return
 
+            metrics = SelfMetrics.get_instance()
             if self._state.state == CircuitState.HALF_OPEN:
                 logger.info("Circuit breaker transitioning to CLOSED after successful test")
                 self._state.state = CircuitState.CLOSED
+                metrics.record_circuit_breaker_transition("half_open", "closed")
+                metrics.set_circuit_breaker_state(CircuitBreakerStateValue.CLOSED)
             self._state.failure_count = 0
             self._state.half_open_calls = 0
+            metrics.set_circuit_breaker_failure_count(0)
 
     def _record_failure(self) -> None:
         """Record a failed execution."""
         with self._state.lock:
+            previous_state = self._state.state
             self._state.failure_count += 1
             self._state.last_failure_time = time.time()
+
+            metrics = SelfMetrics.get_instance()
+            metrics.set_circuit_breaker_failure_count(self._state.failure_count)
 
             if self._state.state == CircuitState.HALF_OPEN:
                 logger.warning("Circuit breaker transitioning to OPEN after failed test")
                 self._state.state = CircuitState.OPEN
+                metrics.record_circuit_breaker_transition("half_open", "open")
+                metrics.set_circuit_breaker_state(CircuitBreakerStateValue.OPEN)
             elif self._state.failure_count >= self.config.failure_threshold:
                 logger.warning("Circuit breaker transitioning to OPEN after %d failures", self._state.failure_count)
                 self._state.state = CircuitState.OPEN
+                from_state = "closed" if previous_state == CircuitState.CLOSED else previous_state.value
+                metrics.record_circuit_breaker_transition(from_state, "open")
+                metrics.set_circuit_breaker_state(CircuitBreakerStateValue.OPEN)
 
     def reset(self) -> None:
         """Reset circuit breaker to initial state."""
@@ -292,6 +312,10 @@ class CircuitBreaker:
             self._state.failure_count = 0
             self._state.last_failure_time = 0.0
             self._state.half_open_calls = 0
+            # Update metrics to reflect reset state
+            metrics = SelfMetrics.get_instance()
+            metrics.set_circuit_breaker_state(CircuitBreakerStateValue.CLOSED)
+            metrics.set_circuit_breaker_failure_count(0)
             logger.info("Circuit breaker reset to CLOSED")
 
 

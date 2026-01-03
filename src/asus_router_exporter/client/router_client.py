@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import json
 import logging
 import re
@@ -22,6 +23,7 @@ from ..core.exceptions import (
     InvalidCredentialsError,
     SessionExpiredError,
 )
+from ..metrics.self_metrics import SelfMetrics
 from ..utils.logging import SensitiveFormatter, mask_sensitive_data
 from ..utils.parsing import (
     ids_for,
@@ -89,6 +91,41 @@ from .models import (
 
 # Type variable for generic functions
 _T = TypeVar("_T")
+
+# Type variable for the decorator return type
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _track_api(method_name: str) -> Callable[[_F], _F]:
+    """
+    Decorator to track API method performance metrics.
+
+    Args:
+        method_name: Name to use in metrics (e.g., 'get_cpu_usage')
+
+    Returns:
+        Decorated function that records request count, duration, and errors
+
+    Note:
+        Caches the SelfMetrics instance on first call to avoid lock acquisition
+        on every API invocation.
+    """
+
+    def decorator(func: _F) -> _F:
+        # Cache metrics instance to avoid get_instance() lock on every call
+        cached_metrics: list[SelfMetrics | None] = [None]
+
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if cached_metrics[0] is None:
+                cached_metrics[0] = SelfMetrics.get_instance()
+            with cached_metrics[0].track_api_call(method_name):
+                return func(*args, **kwargs)
+
+        return cast(_F, wrapper)
+
+    return decorator
+
 
 # Configure logger with SensitiveFormatter to ensure credentials are masked
 # even when this module is used standalone (without asus_router_prometheus.py).
@@ -178,6 +215,24 @@ class RouterClient:
         fresh data is fetched from the router.
         """
         self._cache.clear()
+
+    def _get_cached(self, cache_key: str) -> Any | None:
+        """
+        Get cached value and record hit/miss metrics.
+
+        Args:
+            cache_key: The cache key to look up
+
+        Returns:
+            Cached value or None if not found
+        """
+        cached = self._cache.get(cache_key)
+        metrics = SelfMetrics.get_instance()
+        if cached is not None:
+            metrics.record_cache_hit(cache_key)
+        else:
+            metrics.record_cache_miss(cache_key)
+        return cached
 
     def __enter__(self) -> RouterClient:
         """Context manager entry."""
@@ -424,6 +479,7 @@ class RouterClient:
                 return func(*args, **kwargs)
             raise
 
+    @_track_api("get_core_temp")
     def get_core_temp(self) -> TemperatureInfo:
         return self._request_with_reauth(self._get_core_temp_impl)
 
@@ -438,10 +494,11 @@ class RouterClient:
 
         return TemperatureInfo(cpu=float(parsed["curr_cpuTemp"]))
 
+    @_track_api("get_uptime")
     def get_uptime(self) -> UptimeInfo:
         """Get router uptime information (cached per collection cycle)."""
         cache_key = "uptime"
-        cached = self._cache.get(cache_key)
+        cached = self._get_cached(cache_key)
         if cached is not None:
             return cast(UptimeInfo, cached)
 
@@ -480,6 +537,7 @@ class RouterClient:
                     return RebootScheduleInfo(next_at=candidate, until_ms=until_ms, schedule=reboot_schedule)
         return None
 
+    @_track_api("get_cpu_usage")
     def get_cpu_usage(self) -> list[CpuInfo]:
         response = self.__get_hook("cpu_usage")
         # Router returns malformed JSON wrapper: {"cpu_usage":"cpu1_total":"..."}
@@ -497,6 +555,7 @@ class RouterClient:
 
         return cpu_infos
 
+    @_track_api("get_memory_usage")
     def get_memory_usage(self) -> MemoryInfo:
         response = self.__get_hook("memory_usage")
         # Router returns malformed JSON wrapper: {"memory_usage":"mem_total":"..."}
@@ -577,6 +636,7 @@ class RouterClient:
             mbo_enabled=to_bool(nvrams.get(f"wl{unit}_mbo_enable", "0")),
         )
 
+    @_track_api("get_wireless_info")
     def get_wireless_info(self) -> WifiInfo:
         wl_nband_info = self.get_wl_nband_info()
         nvrams = self.__get_nvram("wps_enable", "wlc_band", "smart_connect_x")
@@ -605,6 +665,7 @@ class RouterClient:
 
         return wifi_info
 
+    @_track_api("get_info")
     def get_info(self) -> RouterInfo:
         nvrams = self.__get_nvram(
             "productid",
@@ -656,6 +717,7 @@ class RouterClient:
             ports_info=ports_info,
         )
 
+    @_track_api("get_netdev")
     def get_netdev(self) -> NetdevInfo:
         response = self.__get_hook("netdev", "appobj")
         data = json.loads(response)
@@ -689,10 +751,11 @@ class RouterClient:
 
         return NetdevInfo(bridge=bridge, internet=internet, wired=wired, wireless=wireless)
 
+    @_track_api("get_supported_features")
     def get_supported_features(self) -> RouterFeatureCapabilities:
         """Get router feature capabilities (cached per collection cycle)."""
         cache_key = "supported_features"
-        cached = self._cache.get(cache_key)
+        cached = self._get_cached(cache_key)
         if cached is not None:
             return cast(RouterFeatureCapabilities, cached)
 
@@ -702,10 +765,11 @@ class RouterClient:
         self._cache[cache_key] = cap
         return cap
 
+    @_track_api("get_sw_mode")
     def get_sw_mode(self) -> SwMode:
         """Get router software mode (cached per collection cycle)."""
         cache_key = "sw_mode"
-        cached = self._cache.get(cache_key)
+        cached = self._get_cached(cache_key)
         if cached is not None:
             return cast(SwMode, cached)
 
@@ -739,10 +803,11 @@ class RouterClient:
         self._cache[cache_key] = mode
         return mode
 
+    @_track_api("get_dual_wan_info")
     def get_dual_wan_info(self) -> DualWanInfo:
         """Get dual WAN configuration (cached per collection cycle)."""
         cache_key = "dual_wan_info"
-        cached = self._cache.get(cache_key)
+        cached = self._get_cached(cache_key)
         if cached is not None:
             return cast(DualWanInfo, cached)
 
@@ -816,6 +881,7 @@ class RouterClient:
                     wan_info.proto = WanProtoType(dsl_info.proto.value)
         return wan_info
 
+    @_track_api("get_network_wan_info")
     def get_network_wan_info(self) -> NetworkWanInfo:
         sw_mode = self.get_sw_mode()
         nvrams = self.__get_nvram("link_internet")
@@ -838,6 +904,7 @@ class RouterClient:
             )
         return network_wan_info
 
+    @_track_api("get_port_status_infos")
     def get_port_status_infos(self, mac: str) -> list[PortInfo]:
         return self._request_with_reauth(self._get_port_status_infos_impl, mac)
 
@@ -953,6 +1020,7 @@ class RouterClient:
 
         return client_info
 
+    @_track_api("get_clients")
     def get_clients(self) -> list[BaseClientInfo]:
         caps = self.get_supported_features()
         get_clientlist = json.loads(self.__get_hook("get_clientlist")).get("get_clientlist")

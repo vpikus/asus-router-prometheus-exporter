@@ -8,10 +8,12 @@ providing loose coupling and easy testability.
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from prometheus_client import REGISTRY, CollectorRegistry
 
+from ..metrics.self_metrics import SelfMetrics
 from .config import Config
 from .error_handling import CompositeErrorHandler
 from .protocols import RouterClientProtocol
@@ -226,11 +228,20 @@ class Container:
             return True  # Nothing to collect, nothing failed
 
         success_count = 0
+        metrics = SelfMetrics.get_instance()
+
         for collector in enabled_collectors:
+            start_time = time.time()
             try:
                 collector.collect(self.router_client, router_info)
+                duration = time.time() - start_time
+                metrics.record_collector_success(collector.name)
+                metrics.set_collector_duration(collector.name, duration)
                 success_count += 1
             except Exception:
+                duration = time.time() - start_time
+                metrics.record_collector_error(collector.name)
+                metrics.set_collector_duration(collector.name, duration)
                 logger.exception("Collector %s failed", collector.name)
                 # Clear this collector's metrics to avoid stale data
                 try:
