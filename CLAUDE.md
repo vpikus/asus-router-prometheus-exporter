@@ -268,6 +268,34 @@ class MemoryCollector(BaseCollector):
         self._usage.labels(product_id=product_id).set(mem.used)
 ```
 
+## Self-Metrics for Observability
+
+The exporter exposes internal metrics about its own health and performance:
+
+### Circuit Breaker Metrics
+- `asus_router_exporter_circuit_breaker_state`: Current state (0=closed, 1=open, 2=half_open)
+- `asus_router_exporter_circuit_breaker_failure_count`: Current consecutive failure count
+- `asus_router_exporter_circuit_breaker_recovery_seconds`: Seconds until recovery attempt (0 when closed)
+- `asus_router_exporter_circuit_breaker_state_transitions_total`: State transition counter by from/to labels
+
+### Retry Metrics
+- `asus_router_exporter_retry_attempts_total`: Total retry attempts (excludes initial)
+- `asus_router_exporter_retries_exhausted_total`: Times all retries were exhausted
+
+### API Performance Metrics
+- `asus_router_exporter_api_requests_total{method}`: API call counts by method
+- `asus_router_exporter_api_request_duration_seconds{method}`: API call duration histogram
+- `asus_router_exporter_api_errors_total{method}`: API error counts by method
+
+### Collector Metrics
+- `asus_router_exporter_collector_success_total{collector}`: Successful collections
+- `asus_router_exporter_collector_errors_total{collector}`: Collection errors
+- `asus_router_exporter_collector_duration_seconds{collector}`: Last collection duration
+
+### Cache Metrics
+- `asus_router_exporter_cache_hits_total{cache_key}`: Cache hits by key
+- `asus_router_exporter_cache_misses_total{cache_key}`: Cache misses by key
+
 ## Logging
 
 Sensitive data (IPs, MACs, credentials, SSIDs) is automatically masked in logs via `SensitiveFormatter` when `mask_sensitive=True` (default).
