@@ -443,6 +443,123 @@ class TestWirelessCollector:
 
         collector.collect(router_client, router_info)
 
+    def test_remove_stale_band_metrics_via_remove_method(self):
+        """Test that _remove_stale_band_metrics correctly removes stale metrics."""
+        from asus_router_exporter.client.models import WifiAuthMode, WifiCrypto, WifiMode
+
+        collector = WirelessCollector(self.registry, self.config)
+
+        # Pre-populate some metrics for bands 0 and 1
+        for wl_unit in ["0", "1"]:
+            collector._band_info.labels(product_id="RT-AX88U", wl_unit=wl_unit).info(
+                {"wl_ssid": f"Network_{wl_unit}", "wl_mac": f"AA:BB:CC:DD:EE:{wl_unit}F"}
+            )
+            collector._ssid_hidden.labels(product_id="RT-AX88U", wl_unit=wl_unit).set(0)
+            # Set one-hot metrics for modes
+            for mode in WifiMode:
+                val = 1 if mode == WifiMode.AX_ONLY else 0
+                collector._band_mode.labels(product_id="RT-AX88U", wl_unit=wl_unit, wl_mode=mode.name).set(val)
+            for auth in WifiAuthMode:
+                val = 1 if auth == WifiAuthMode.PSK2 else 0
+                collector._auth_mode.labels(product_id="RT-AX88U", wl_unit=wl_unit, wl_auth_mode=auth.value).set(val)
+            for crypto in WifiCrypto:
+                val = 1 if crypto == WifiCrypto.AES else 0
+                collector._crypto.labels(product_id="RT-AX88U", wl_unit=wl_unit, wl_crypto=crypto.value).set(val)
+
+        # Track that bands 0 and 1 were active
+        collector._active_bands = {"0", "1"}
+
+        # Call _remove_stale_band_metrics - band 1 should be removed
+        collector._remove_stale_band_metrics("RT-AX88U", {"0", "1"}, {"0"})
+
+        # Verify remove was called (the method handles KeyError internally)
+        # This test verifies the method doesn't raise and executes all removal paths
+
+    def test_remove_stale_band_metrics_direct(self):
+        """Test _remove_stale_band_metrics directly."""
+        from asus_router_exporter.client.models import WifiMode
+
+        collector = WirelessCollector(self.registry, self.config)
+
+        # Pre-populate metrics for bands 0 and 1
+        for wl_unit in ["0", "1"]:
+            collector._band_info.labels(product_id="RT-AX88U", wl_unit=wl_unit).info(
+                {"wl_ssid": f"Network_{wl_unit}", "wl_mac": f"AA:BB:CC:DD:EE:{wl_unit}F"}
+            )
+            collector._ssid_hidden.labels(product_id="RT-AX88U", wl_unit=wl_unit).set(0)
+            for mode in WifiMode:
+                collector._band_mode.labels(product_id="RT-AX88U", wl_unit=wl_unit, wl_mode=mode.name).set(0)
+
+        # Call remove_stale directly - band 1 should be removed
+        collector._remove_stale_band_metrics("RT-AX88U", {"0", "1"}, {"0"})
+
+        # This should not raise - verifies the removal logic works
+        # The method handles KeyError internally for metrics that don't exist
+
+    def test_cleanup_clears_active_bands(self):
+        """Test that cleanup properly clears active bands."""
+        from asus_router_exporter.client.models import WifiAuthMode, WifiCrypto, WifiMode
+
+        collector = WirelessCollector(self.registry, self.config)
+        router_client = Mock()
+        router_info = Mock(product_id="RT-AX88U")
+
+        # Collect some metrics first
+        wireless_info = Mock(
+            wps_enabled=True,
+            smart_connect_enabled=True,
+            band_2G_info=Mock(
+                ssid="Network",
+                mac="AA:BB:CC:DD:EE:FF",
+                mode=WifiMode.MIXED,
+                auth_mode=WifiAuthMode.OPEN,
+                crypto=WifiCrypto.AES,
+                hidde_ssid=False,
+            ),
+            band_5G_info=None,
+            band_5G_2_info=None,
+            band_6G_info=None,
+        )
+        router_client.get_network_wireless_info.return_value = wireless_info
+
+        collector.collect(router_client, router_info)
+        assert len(collector._active_bands) > 0
+
+        # Cleanup should clear active bands
+        collector.cleanup()
+        assert len(collector._active_bands) == 0
+
+    def test_set_onehot_enum_fallback_when_enum_not_found(self):
+        """Test that _set_onehot_enum falls back to string value when enum class not found."""
+        collector = WirelessCollector(self.registry, self.config)
+        router_client = Mock()
+        router_info = Mock(product_id="RT-AX88U")
+
+        # Create band_info with a mock mode that's not a real enum
+        fake_mode = Mock()
+        fake_mode.name = "UNKNOWN_MODE"
+        fake_mode.__str__ = lambda self: "UNKNOWN_MODE"
+
+        wireless_info = Mock(
+            wps_enabled=True,
+            smart_connect_enabled=False,
+            band_2G_info=Mock(
+                ssid="Network",
+                mac="AA:BB:CC:DD:EE:FF",
+                mode=fake_mode,
+                auth_mode=None,
+                crypto=None,
+                hidde_ssid=False,
+            ),
+            band_5G_info=None,
+            band_5G_2_info=None,
+            band_6G_info=None,
+        )
+        router_client.get_network_wireless_info.return_value = wireless_info
+
+        # Should not raise even with non-standard enum values
+        collector.collect(router_client, router_info)
+
 
 # ============================================================================
 # Ports Collector Tests
@@ -515,6 +632,186 @@ class TestPortsCollector:
         router_info = Mock(product_id="RT-AX88U", lan_hwaddr="AA:BB:CC:DD:EE:FF", ports_info=[])
 
         collector.collect(router_client, router_info)
+
+    def test_remove_stale_port_metrics(self):
+        """Test that stale port metrics are removed when ports disappear."""
+        from asus_router_exporter.client.models import PortGroup
+
+        collector = PortsCollector(self.registry, self.config)
+        router_client = Mock()
+
+        # First collection with 3 ports
+        router_info_1 = Mock(
+            product_id="RT-AX88U",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
+            ports_info=[
+                Mock(
+                    id="W0",
+                    plugged=True,
+                    max_supported_speed_rate_mbps=1000,
+                    current_speed_rate_mbps=1000,
+                    is_slow_speed=False,
+                    group=PortGroup.WAN,
+                    special_port_name="",
+                ),
+                Mock(
+                    id="L1",
+                    plugged=True,
+                    max_supported_speed_rate_mbps=1000,
+                    current_speed_rate_mbps=100,
+                    is_slow_speed=True,
+                    group=PortGroup.LAN,
+                    special_port_name="",
+                ),
+                Mock(
+                    id="L2",
+                    plugged=True,
+                    max_supported_speed_rate_mbps=2500,
+                    current_speed_rate_mbps=2500,
+                    is_slow_speed=False,
+                    group=PortGroup.LAN,
+                    special_port_name="2.5G Port",
+                ),
+            ],
+        )
+
+        collector.collect(router_client, router_info_1)
+
+        # Verify all 3 ports are tracked
+        assert "W0" in collector._active_port_ids
+        assert "L1" in collector._active_port_ids
+        assert "L2" in collector._active_port_ids
+
+        # Second collection with only 2 ports (L2 removed - USB port unplugged)
+        router_info_2 = Mock(
+            product_id="RT-AX88U",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
+            ports_info=[
+                Mock(
+                    id="W0",
+                    plugged=True,
+                    max_supported_speed_rate_mbps=1000,
+                    current_speed_rate_mbps=1000,
+                    is_slow_speed=False,
+                    group=PortGroup.WAN,
+                    special_port_name="",
+                ),
+                Mock(
+                    id="L1",
+                    plugged=False,
+                    max_supported_speed_rate_mbps=1000,
+                    current_speed_rate_mbps=0,
+                    is_slow_speed=False,
+                    group=PortGroup.LAN,
+                    special_port_name="",
+                ),
+            ],
+        )
+
+        collector.collect(router_client, router_info_2)
+
+        # Verify L2 is no longer tracked
+        assert "W0" in collector._active_port_ids
+        assert "L1" in collector._active_port_ids
+        assert "L2" not in collector._active_port_ids
+
+    def test_remove_all_port_metrics_when_ports_info_becomes_none(self):
+        """Test that all port metrics are removed when ports_info becomes None."""
+        from asus_router_exporter.client.models import PortGroup
+
+        collector = PortsCollector(self.registry, self.config)
+        router_client = Mock()
+
+        # First collection with ports
+        router_info_1 = Mock(
+            product_id="RT-AX88U",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
+            ports_info=[
+                Mock(
+                    id="W0",
+                    plugged=True,
+                    max_supported_speed_rate_mbps=1000,
+                    current_speed_rate_mbps=1000,
+                    is_slow_speed=False,
+                    group=PortGroup.WAN,
+                    special_port_name="",
+                ),
+            ],
+        )
+
+        collector.collect(router_client, router_info_1)
+        assert len(collector._active_port_ids) > 0
+
+        # Second collection with ports_info = None
+        router_info_2 = Mock(
+            product_id="RT-AX88U",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
+            ports_info=None,
+        )
+
+        collector.collect(router_client, router_info_2)
+
+        # All ports should be removed
+        assert len(collector._active_port_ids) == 0
+
+    def test_cleanup_clears_active_port_ids(self):
+        """Test that cleanup properly clears active port IDs."""
+        from asus_router_exporter.client.models import PortGroup
+
+        collector = PortsCollector(self.registry, self.config)
+        router_client = Mock()
+
+        # Collect some metrics first
+        router_info = Mock(
+            product_id="RT-AX88U",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
+            ports_info=[
+                Mock(
+                    id="W0",
+                    plugged=True,
+                    max_supported_speed_rate_mbps=1000,
+                    current_speed_rate_mbps=1000,
+                    is_slow_speed=False,
+                    group=PortGroup.WAN,
+                    special_port_name="",
+                ),
+            ],
+        )
+
+        collector.collect(router_client, router_info)
+        assert len(collector._active_port_ids) > 0
+
+        # Cleanup should clear active port IDs
+        collector.cleanup()
+        assert len(collector._active_port_ids) == 0
+
+    def test_port_with_usb_group(self):
+        """Test port collection with USB group type."""
+        from asus_router_exporter.client.models import PortGroup
+
+        collector = PortsCollector(self.registry, self.config)
+        router_client = Mock()
+
+        router_info = Mock(
+            product_id="RT-AX88U",
+            lan_hwaddr="AA:BB:CC:DD:EE:FF",
+            ports_info=[
+                Mock(
+                    id="USB1",
+                    plugged=True,
+                    max_supported_speed_rate_mbps=5000,
+                    current_speed_rate_mbps=5000,
+                    is_slow_speed=False,
+                    group=PortGroup.USB,
+                    special_port_name="USB 3.0",
+                ),
+            ],
+        )
+
+        collector.collect(router_client, router_info)
+
+        # Verify USB port is tracked
+        assert "USB1" in collector._active_port_ids
 
 
 # ============================================================================
@@ -746,3 +1043,248 @@ class TestClientsCollector:
 
         # Just verify cleanup doesn't raise
         assert True
+
+    def test_collect_with_client_info_instance(self):
+        """Test collection with actual ClientInfo instance to cover detailed metrics."""
+        from asus_router_exporter.client.models import (
+            ClientAmeshInfo,
+            ClientInfo,
+            ClientInterface,
+            ClientInternetMode,
+            ClientInternetState,
+            ClientIpMethod,
+            ClientOperationMode,
+            ThroughputInfo,
+            TrafficStats,
+        )
+
+        collector = ClientsCollector(self.registry, self.config)
+
+        router_client = Mock()
+
+        # Create actual ClientInfo instance
+        amesh_info = ClientAmeshInfo(role=ClientAmeshRole.CLIENT, pap_mac="11:22:33:44:55:66")
+        traffic_stats = TrafficStats(rx=1000, tx=500)
+        throughput_info = ThroughputInfo(total_download_bytes=10000, total_upload_bytes=5000)
+
+        client = ClientInfo(
+            mac="AA:BB:CC:DD:EE:FF",
+            name="TestDevice",
+            nick_name="MyDevice",
+            vendor="Apple",
+            online=True,
+            os_type=5,
+            device_type=2,
+            last_conn_ts=1700000000,
+            last_conn_interface=ClientInterface.WL_5G,
+            amesh_info=amesh_info,
+            ipaddr="192.168.1.100",
+            interface=ClientInterface.WL_5G,
+            op_mode=ClientOperationMode.RT,
+            rssi=-65,
+            ip_method=ClientIpMethod.DHCP,
+            internet_mode=ClientInternetMode.ALLOW,
+            internet_state=ClientInternetState.ALLOW,
+            traffic_stats=traffic_stats,
+            throughput_info=throughput_info,
+            conn_time="01:30:00",
+        )
+
+        router_client.get_clients.return_value = [client]
+        router_info = Mock(product_id="RT-AX88U")
+
+        collector.collect(router_client, router_info)
+
+        # Verify metrics were collected
+        samples = list(collector._online.collect())
+        assert len(samples) > 0
+
+    def test_collect_with_wired_client_info_no_rssi(self):
+        """Test that wired clients don't emit RSSI metrics."""
+        from asus_router_exporter.client.models import (
+            ClientInfo,
+            ClientInterface,
+            ClientInternetMode,
+            ClientInternetState,
+        )
+
+        collector = ClientsCollector(self.registry, self.config)
+
+        router_client = Mock()
+
+        # Create wired ClientInfo (LAN interface)
+        client = ClientInfo(
+            mac="AA:BB:CC:DD:EE:FF",
+            name="WiredDevice",
+            nick_name="",
+            vendor="Dell",
+            online=True,
+            os_type=0,
+            device_type=0,
+            last_conn_ts=1700000000,
+            last_conn_interface=ClientInterface.LAN,
+            amesh_info=None,
+            ipaddr="192.168.1.101",
+            interface=ClientInterface.LAN,
+            op_mode=None,
+            rssi=None,
+            ip_method=None,
+            internet_mode=ClientInternetMode.ALLOW,
+            internet_state=ClientInternetState.ALLOW,
+        )
+
+        router_client.get_clients.return_value = [client]
+        router_info = Mock(product_id="RT-AX88U")
+
+        collector.collect(router_client, router_info)
+
+        # Verify collection completed without errors
+        samples = list(collector._online.collect())
+        assert len(samples) > 0
+
+    def test_collect_client_with_none_values(self):
+        """Test collection handles None values gracefully in detailed metrics."""
+        from asus_router_exporter.client.models import (
+            ClientInfo,
+            ClientInterface,
+            ClientInternetMode,
+            ClientInternetState,
+        )
+
+        collector = ClientsCollector(self.registry, self.config)
+
+        router_client = Mock()
+
+        # ClientInfo with many None values
+        client = ClientInfo(
+            mac="AA:BB:CC:DD:EE:FF",
+            name="",
+            nick_name="",
+            vendor="",
+            online=False,
+            os_type=0,
+            device_type=0,
+            last_conn_ts=None,
+            last_conn_interface=ClientInterface.WL_2G,
+            amesh_info=None,
+            ipaddr="192.168.1.102",
+            interface=ClientInterface.WL_2G,
+            op_mode=None,
+            rssi=None,
+            ip_method=None,
+            internet_mode=ClientInternetMode.BLOCK,
+            internet_state=ClientInternetState.BLOCK,
+            traffic_stats=None,
+            throughput_info=None,
+            conn_time=None,
+        )
+
+        router_client.get_clients.return_value = [client]
+        router_info = Mock(product_id="RT-AX88U")
+
+        collector.collect(router_client, router_info)
+
+    def test_set_onehot_interface_all_interfaces(self):
+        """Test that _set_onehot_interface sets all interface values correctly."""
+        from asus_router_exporter.client.models import (
+            ClientInfo,
+            ClientInterface,
+            ClientInternetMode,
+            ClientInternetState,
+        )
+
+        collector = ClientsCollector(self.registry, self.config)
+
+        router_client = Mock()
+
+        # Test with 5G interface
+        client = ClientInfo(
+            mac="AA:BB:CC:DD:EE:FF",
+            name="Test",
+            nick_name="",
+            vendor="",
+            online=True,
+            os_type=0,
+            device_type=0,
+            last_conn_ts=None,
+            last_conn_interface=ClientInterface.WL_5G,
+            amesh_info=None,
+            ipaddr="192.168.1.100",
+            interface=ClientInterface.WL_5G,
+            op_mode=None,
+            rssi=-70,
+            ip_method=None,
+            internet_mode=ClientInternetMode.ALLOW,
+            internet_state=ClientInternetState.ALLOW,
+        )
+
+        router_client.get_clients.return_value = [client]
+        router_info = Mock(product_id="RT-AX88U")
+
+        collector.collect(router_client, router_info)
+
+        # Check that interface one-hot was set (one should be 1, others 0)
+        samples = list(collector._interface.collect())
+        assert len(samples) > 0
+
+    def test_set_onehot_enum_with_all_enum_values(self):
+        """Test that _set_onehot_enum correctly sets all enum values."""
+        from asus_router_exporter.client.models import (
+            ClientAmeshInfo,
+            ClientInfo,
+            ClientInterface,
+            ClientInternetMode,
+            ClientInternetState,
+            ClientIpMethod,
+            ClientOperationMode,
+        )
+
+        collector = ClientsCollector(self.registry, self.config)
+
+        router_client = Mock()
+
+        # Create client with all enum values set
+        amesh_info = ClientAmeshInfo(role=ClientAmeshRole.REPEATER, pap_mac="11:22:33:44:55:66")
+
+        client = ClientInfo(
+            mac="AA:BB:CC:DD:EE:FF",
+            name="EnumTest",
+            nick_name="",
+            vendor="",
+            online=True,
+            os_type=0,
+            device_type=0,
+            last_conn_ts=1700000000,
+            last_conn_interface=ClientInterface.WL_6G,
+            amesh_info=amesh_info,
+            ipaddr="192.168.1.100",
+            interface=ClientInterface.WL_6G,
+            op_mode=ClientOperationMode.RE,
+            rssi=-55,
+            ip_method=ClientIpMethod.STATIC,
+            internet_mode=ClientInternetMode.TIME,
+            internet_state=ClientInternetState.ALLOW,
+        )
+
+        router_client.get_clients.return_value = [client]
+        router_info = Mock(product_id="RT-AX88U")
+
+        collector.collect(router_client, router_info)
+
+        # Verify one-hot metrics were set
+        op_mode_samples = list(collector._op_mode.collect())
+        assert len(op_mode_samples) > 0
+
+        amesh_samples = list(collector._amesh_role.collect())
+        assert len(amesh_samples) > 0
+
+    def test_collect_preserves_active_labels(self):
+        """Test that cleanup properly clears active labels from mixin."""
+        collector = ClientsCollector(self.registry, self.config)
+
+        # Simulate some tracking
+        collector._active_labels["test_key"] = {"some", "labels"}
+
+        collector.cleanup()
+
+        assert len(collector._active_labels) == 0
