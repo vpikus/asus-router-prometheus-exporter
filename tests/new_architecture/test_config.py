@@ -12,6 +12,7 @@ import pytest
 sys.path.insert(0, "src")
 
 from asus_router_exporter.core.config import Config
+from asus_router_exporter.core.exceptions import ConfigurationError
 
 
 class TestConfigDefaults:
@@ -248,6 +249,29 @@ class TestConfigEnvHelpers:
         os.environ.pop("NONEXISTENT_FLOAT", None)
         assert Config._env_float("NONEXISTENT_FLOAT", 1.5) == 1.5
 
+    def test_env_int_invalid_logs_warning(self, caplog):
+        """Test that invalid integer env var logs a warning."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            with patch.dict(os.environ, {"TEST_INT": "invalid"}):
+                result = Config._env_int("TEST_INT", 42)
+        assert result == 42
+        assert "Invalid integer value for TEST_INT" in caplog.text
+        assert "'invalid'" in caplog.text
+        assert "42" in caplog.text
+
+    def test_env_float_invalid_logs_warning(self, caplog):
+        """Test that invalid float env var logs a warning."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            with patch.dict(os.environ, {"TEST_FLOAT": "not_a_number"}):
+                result = Config._env_float("TEST_FLOAT", 3.14)
+        assert result == 3.14
+        assert "Invalid float value for TEST_FLOAT" in caplog.text
+        assert "'not_a_number'" in caplog.text
+
 
 class TestConfigEnvOverrides:
     """Tests for configuration via environment variables."""
@@ -321,3 +345,192 @@ class TestConfigEnvOverrides:
             assert config.is_collector_enabled("cpu") is False
             assert config.is_collector_enabled("memory") is True
             assert config.is_collector_enabled("clients") is False
+
+
+class TestConfigValidation:
+    """Tests for configuration validation."""
+
+    def test_valid_config_passes_validation(self):
+        """Test that valid configuration passes validation."""
+        config = Config(
+            {
+                "exporter": {"port": 8000, "scrape_interval": 30},
+                "router": {"timeout": 10},
+                "error_handling": {
+                    "retry": {"max_attempts": 3, "backoff_factor": 2.0, "max_delay": 30.0},
+                    "circuit_breaker": {
+                        "failure_threshold": 5,
+                        "recovery_timeout": 60.0,
+                        "half_open_max_calls": 3,
+                    },
+                },
+            }
+        )
+        # Should not raise
+        assert config.get("exporter.port") == 8000
+
+    def test_invalid_port_negative(self):
+        """Test that negative port raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="exporter.port must be an integer between 1 and 65535"):
+            Config({"exporter": {"port": -1}})
+
+    def test_invalid_port_zero(self):
+        """Test that zero port raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="exporter.port must be an integer between 1 and 65535"):
+            Config({"exporter": {"port": 0}})
+
+    def test_invalid_port_too_high(self):
+        """Test that port > 65535 raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="exporter.port must be an integer between 1 and 65535"):
+            Config({"exporter": {"port": 70000}})
+
+    def test_invalid_port_string(self):
+        """Test that string port raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="exporter.port must be an integer between 1 and 65535"):
+            Config({"exporter": {"port": "8000"}})
+
+    def test_invalid_port_boolean(self):
+        """Test that boolean port raises ConfigurationError (bool is subclass of int)."""
+        with pytest.raises(ConfigurationError, match="exporter.port must be an integer between 1 and 65535"):
+            Config({"exporter": {"port": True}})
+
+    def test_invalid_timeout_negative(self):
+        """Test that negative timeout raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="router.timeout must be a positive number"):
+            Config({"router": {"timeout": -5}})
+
+    def test_invalid_timeout_zero(self):
+        """Test that zero timeout raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="router.timeout must be a positive number"):
+            Config({"router": {"timeout": 0}})
+
+    def test_invalid_scrape_interval_negative(self):
+        """Test that negative scrape_interval raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="exporter.scrape_interval must be a positive number"):
+            Config({"exporter": {"scrape_interval": -10}})
+
+    def test_invalid_scrape_interval_zero(self):
+        """Test that zero scrape_interval raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="exporter.scrape_interval must be a positive number"):
+            Config({"exporter": {"scrape_interval": 0}})
+
+    def test_invalid_retry_max_attempts_zero(self):
+        """Test that zero max_attempts raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry.max_attempts must be a positive integer"):
+            Config({"error_handling": {"retry": {"max_attempts": 0}}})
+
+    def test_invalid_retry_max_attempts_negative(self):
+        """Test that negative max_attempts raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry.max_attempts must be a positive integer"):
+            Config({"error_handling": {"retry": {"max_attempts": -1}}})
+
+    def test_invalid_retry_backoff_factor_zero(self):
+        """Test that zero backoff_factor raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry.backoff_factor must be a positive number"):
+            Config({"error_handling": {"retry": {"backoff_factor": 0}}})
+
+    def test_invalid_retry_max_delay_negative(self):
+        """Test that negative max_delay raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry.max_delay must be a positive number"):
+            Config({"error_handling": {"retry": {"max_delay": -1}}})
+
+    def test_invalid_circuit_breaker_failure_threshold_zero(self):
+        """Test that zero failure_threshold raises ConfigurationError."""
+        with pytest.raises(
+            ConfigurationError, match="error_handling.circuit_breaker.failure_threshold must be a positive integer"
+        ):
+            Config({"error_handling": {"circuit_breaker": {"failure_threshold": 0}}})
+
+    def test_invalid_circuit_breaker_recovery_timeout_negative(self):
+        """Test that negative recovery_timeout raises ConfigurationError."""
+        with pytest.raises(
+            ConfigurationError, match="error_handling.circuit_breaker.recovery_timeout must be a positive number"
+        ):
+            Config({"error_handling": {"circuit_breaker": {"recovery_timeout": -60}}})
+
+    def test_invalid_circuit_breaker_half_open_max_calls_zero(self):
+        """Test that zero half_open_max_calls raises ConfigurationError."""
+        with pytest.raises(
+            ConfigurationError, match="error_handling.circuit_breaker.half_open_max_calls must be a positive integer"
+        ):
+            Config({"error_handling": {"circuit_breaker": {"half_open_max_calls": 0}}})
+
+    def test_multiple_validation_errors(self):
+        """Test that multiple errors are collected and reported together."""
+        with pytest.raises(ConfigurationError) as exc_info:
+            Config(
+                {
+                    "exporter": {"port": -1, "scrape_interval": 0},
+                    "router": {"timeout": -5},
+                }
+            )
+        error_msg = str(exc_info.value)
+        assert "exporter.port" in error_msg
+        assert "exporter.scrape_interval" in error_msg
+        assert "router.timeout" in error_msg
+
+    def test_validation_can_be_disabled(self):
+        """Test that validation can be disabled."""
+        # Should not raise even with invalid values
+        config = Config({"exporter": {"port": -1}}, validate=False)
+        assert config.get("exporter.port") == -1
+
+    def test_valid_edge_case_port_1(self):
+        """Test that port 1 is valid."""
+        config = Config({"exporter": {"port": 1}})
+        assert config.get("exporter.port") == 1
+
+    def test_valid_edge_case_port_65535(self):
+        """Test that port 65535 is valid."""
+        config = Config({"exporter": {"port": 65535}})
+        assert config.get("exporter.port") == 65535
+
+    def test_valid_float_timeout(self):
+        """Test that float timeout is valid."""
+        config = Config({"router": {"timeout": 0.5}})
+        assert config.get("router.timeout") == 0.5
+
+    def test_invalid_retry_not_a_dict(self):
+        """Test that non-dict retry raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry must be a dictionary"):
+            Config({"error_handling": {"retry": "invalid"}})
+
+    def test_invalid_retry_not_a_dict_list(self):
+        """Test that list retry raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry must be a dictionary"):
+            Config({"error_handling": {"retry": [1, 2, 3]}})
+
+    def test_invalid_circuit_breaker_not_a_dict(self):
+        """Test that non-dict circuit_breaker raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.circuit_breaker must be a dictionary"):
+            Config({"error_handling": {"circuit_breaker": "invalid"}})
+
+    def test_invalid_circuit_breaker_not_a_dict_int(self):
+        """Test that integer circuit_breaker raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.circuit_breaker must be a dictionary"):
+            Config({"error_handling": {"circuit_breaker": 123}})
+
+    def test_invalid_retry_falsy_non_dict_false(self):
+        """Test that False retry raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry must be a dictionary"):
+            Config({"error_handling": {"retry": False}})
+
+    def test_invalid_retry_falsy_non_dict_zero(self):
+        """Test that zero retry raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry must be a dictionary"):
+            Config({"error_handling": {"retry": 0}})
+
+    def test_invalid_retry_falsy_non_dict_empty_string(self):
+        """Test that empty string retry raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry must be a dictionary"):
+            Config({"error_handling": {"retry": ""}})
+
+    def test_invalid_circuit_breaker_falsy_non_dict_false(self):
+        """Test that False circuit_breaker raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.circuit_breaker must be a dictionary"):
+            Config({"error_handling": {"circuit_breaker": False}})
+
+    def test_invalid_circuit_breaker_falsy_non_dict_empty_list(self):
+        """Test that empty list circuit_breaker raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.circuit_breaker must be a dictionary"):
+            Config({"error_handling": {"circuit_breaker": []}})

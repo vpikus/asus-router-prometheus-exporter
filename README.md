@@ -106,6 +106,8 @@ exporter.run()
 
 All configuration options can be set via environment variables, YAML config files, or CLI arguments.
 
+**Configuration Validation**: All configuration values are validated at startup. Invalid values (e.g., negative port, zero timeout) will cause the exporter to fail fast with clear error messages listing all validation issues.
+
 ### Environment Variables
 
 #### Router Connection
