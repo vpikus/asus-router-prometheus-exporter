@@ -270,7 +270,7 @@ class TestParseJsonResponse:
         session = MagicMock()
         client = RouterClient(host="http://192.168.1.1", session=session)
 
-        invalid_json = 'not valid json'
+        invalid_json = "not valid json"
         with pytest.raises(json.JSONDecodeError):
             client._parse_json_response(invalid_json)
 

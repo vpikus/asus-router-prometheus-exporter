@@ -528,7 +528,7 @@ class RouterClient:
         """Parse reboot schedule string from router.
 
         Args:
-            schedule: Schedule string in format "DDDDDDDHHHMM" where:
+            schedule: Schedule string in format "DDDDDDDHHMM" where:
                 - D (7 chars): Binary weekday mask (1=enabled)
                 - HH (2 chars): Hour (00-23)
                 - MM (2 chars): Minute (00-59)
@@ -581,10 +581,12 @@ class RouterClient:
 
         for cid in cpu_ids:
             prefix = f"cpu{cid}"
-            cpu_infos.append(CpuInfo(
-                usage=safe_int(data.get(f"{prefix}_usage", 0)),
-                total=safe_int(data.get(f"{prefix}_total", 0)),
-            ))
+            cpu_infos.append(
+                CpuInfo(
+                    usage=safe_int(data.get(f"{prefix}_usage", 0)),
+                    total=safe_int(data.get(f"{prefix}_total", 0)),
+                )
+            )
 
         return cpu_infos
 
