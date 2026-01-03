@@ -75,9 +75,7 @@ class CircuitBreaker:
             pass
     """
 
-    def __init__(
-        self, config: CircuitBreakerConfig | None = None, *, metrics: SelfMetrics | None = None
-    ):
+    def __init__(self, config: CircuitBreakerConfig | None = None, *, metrics: SelfMetrics | None = None):
         """
         Initialize circuit breaker.
 
