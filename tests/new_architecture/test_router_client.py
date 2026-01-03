@@ -167,17 +167,19 @@ class TestRouterClientHandleResponse:
         result = client._handle_response(mock_response)
         assert result == '{"data": "value"}'
 
-    def test_handle_response_auth_error(self):
+    def test_handle_response_returns_text(self):
+        """_handle_response should return response text without JSON parsing."""
         session = MagicMock()
         client = RouterClient(host="http://192.168.1.1", session=session)
 
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.text = '{"error_status": "2"}'
-        mock_response.json.return_value = {"error_status": "2"}
 
-        with pytest.raises(SessionExpiredError):
-            client._handle_response(mock_response)
+        # _handle_response no longer parses JSON or checks for errors
+        # Auth error checking is now done by _parse_json_response
+        result = client._handle_response(mock_response)
+        assert result == '{"error_status": "2"}'
 
     def test_handle_response_non_json(self):
         session = MagicMock()
@@ -193,11 +195,109 @@ class TestRouterClientHandleResponse:
         assert result == "not json"
 
 
+class TestCheckForErrorResponse:
+    """Tests for _check_for_error_response method."""
+
+    def test_check_error_response_with_error_status(self):
+        """Should raise SessionExpiredError for error_status=2."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        error_response = '{"error_status":"2", "captcha_on":"0", "last_time_lock_warning":"0"}'
+        with pytest.raises(SessionExpiredError):
+            client._check_for_error_response(error_response)
+
+    def test_check_error_response_no_error(self):
+        """Should not raise for valid data without error_status."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        valid_response = '{"uptime": "Mon, 01 Jan 2024 12:00:00 +0000 (12345 secs)"}'
+        # Should not raise
+        client._check_for_error_response(valid_response)
+
+    def test_check_error_response_error_status_zero(self):
+        """Should not raise for error_status=0 (success)."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        success_response = '{"error_status":"0", "captcha_on":"0"}'
+        # Should not raise
+        client._check_for_error_response(success_response)
+
+    def test_check_error_response_non_json(self):
+        """Should not raise for non-JSON responses (e.g., JavaScript from ajax_coretmp.asp)."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        js_response = 'var curr_cpuTemp = "45.0"; var wifi_temp = "50.0";'
+        # Should not raise
+        client._check_for_error_response(js_response)
+
+    def test_check_error_response_invalid_credentials(self):
+        """Should raise InvalidCredentialsError for error_status=3."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        error_response = '{"error_status":"3", "captcha_on":"0"}'
+        with pytest.raises(InvalidCredentialsError):
+            client._check_for_error_response(error_response)
+
+
+class TestParseJsonResponse:
+    """Tests for _parse_json_response method."""
+
+    def test_parse_json_response_valid_data(self):
+        """Should parse and return valid JSON data."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        response = '{"key": "value", "number": 42}'
+        result = client._parse_json_response(response)
+        assert result == {"key": "value", "number": 42}
+
+    def test_parse_json_response_with_error_status(self):
+        """Should raise SessionExpiredError for error response."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        error_response = '{"error_status":"2", "captcha_on":"0"}'
+        with pytest.raises(SessionExpiredError):
+            client._parse_json_response(error_response)
+
+    def test_parse_json_response_invalid_json(self):
+        """Should raise JSONDecodeError for invalid JSON."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        invalid_json = 'not valid json'
+        with pytest.raises(json.JSONDecodeError):
+            client._parse_json_response(invalid_json)
+
+    def test_parse_json_response_error_status_zero(self):
+        """Should return data when error_status is 0 (success)."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        response = '{"error_status":"0", "data": "some_value"}'
+        result = client._parse_json_response(response)
+        assert result == {"error_status": "0", "data": "some_value"}
+
+    def test_parse_json_response_with_captcha_required(self):
+        """Should raise CaptchaRequiredError when captcha_on=1."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        error_response = '{"error_status":"2", "captcha_on":"1"}'
+        with pytest.raises(CaptchaRequiredError):
+            client._parse_json_response(error_response)
+
+
 class TestAuthenticationExceptions:
     """Tests for authentication exception handling based on error_status values."""
 
-    def _create_auth_error_response(self, error_status: str, captcha_on: str = "0"):
-        """Create a mock response with error_status and captcha_on.
+    def _create_auth_error_text(self, error_status: str, captcha_on: str = "0") -> tuple[RouterClient, str]:
+        """Create a client and error response text with error_status and captcha_on.
 
         The router always returns both error_status and captcha_on in error responses,
         so we include both fields to match real router behavior.
@@ -205,76 +305,73 @@ class TestAuthenticationExceptions:
         session = MagicMock()
         client = RouterClient(host="http://192.168.1.1", session=session)
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
         response_data = {"error_status": error_status, "captcha_on": captcha_on}
-        mock_response.text = json.dumps(response_data)
-        mock_response.json.return_value = response_data
+        response_text = json.dumps(response_data)
 
-        return client, mock_response
+        return client, response_text
 
     def test_error_status_1_raises_session_expired(self):
         """error_status 1 should raise SessionExpiredError (recoverable)."""
-        client, response = self._create_auth_error_response("1")
+        client, response_text = self._create_auth_error_text("1")
         with pytest.raises(SessionExpiredError) as exc_info:
-            client._handle_response(response)
+            client._parse_json_response(response_text)
         assert exc_info.value.recoverable is True
 
     def test_error_status_2_raises_session_expired(self):
         """error_status 2 should raise SessionExpiredError (recoverable)."""
-        client, response = self._create_auth_error_response("2")
+        client, response_text = self._create_auth_error_text("2")
         with pytest.raises(SessionExpiredError) as exc_info:
-            client._handle_response(response)
+            client._parse_json_response(response_text)
         assert exc_info.value.recoverable is True
 
     def test_error_status_3_raises_invalid_credentials(self):
         """error_status 3 should raise InvalidCredentialsError (not recoverable)."""
-        client, response = self._create_auth_error_response("3")
+        client, response_text = self._create_auth_error_text("3")
         with pytest.raises(InvalidCredentialsError) as exc_info:
-            client._handle_response(response)
+            client._parse_json_response(response_text)
         assert exc_info.value.recoverable is False
 
     def test_error_status_7_raises_invalid_credentials(self):
         """error_status 7 should raise InvalidCredentialsError (not recoverable)."""
-        client, response = self._create_auth_error_response("7")
+        client, response_text = self._create_auth_error_text("7")
         with pytest.raises(InvalidCredentialsError) as exc_info:
-            client._handle_response(response)
+            client._parse_json_response(response_text)
         assert exc_info.value.recoverable is False
 
     def test_error_status_11_raises_account_locked(self):
         """error_status 11 should raise AccountLockedError (not recoverable)."""
-        client, response = self._create_auth_error_response("11")
+        client, response_text = self._create_auth_error_text("11")
         with pytest.raises(AccountLockedError) as exc_info:
-            client._handle_response(response)
+            client._parse_json_response(response_text)
         assert exc_info.value.recoverable is False
 
     def test_error_status_4_raises_auth_blocked(self):
         """error_status 4 should raise AuthenticationBlockedError (not recoverable)."""
-        client, response = self._create_auth_error_response("4")
+        client, response_text = self._create_auth_error_text("4")
         with pytest.raises(AuthenticationBlockedError) as exc_info:
-            client._handle_response(response)
+            client._parse_json_response(response_text)
         assert exc_info.value.recoverable is False
         assert exc_info.value.error_status == 4
 
     def test_error_status_unknown_raises_auth_blocked(self):
         """Unknown error_status (>11) should raise AuthenticationBlockedError."""
-        client, response = self._create_auth_error_response("99")
+        client, response_text = self._create_auth_error_text("99")
         with pytest.raises(AuthenticationBlockedError) as exc_info:
-            client._handle_response(response)
+            client._parse_json_response(response_text)
         assert exc_info.value.error_status == 99
 
     def test_captcha_takes_priority_over_error_status(self):
         """captcha_on=1 should raise CaptchaRequiredError even with error_status <= 2."""
-        client, response = self._create_auth_error_response("2", captcha_on="1")
+        client, response_text = self._create_auth_error_text("2", captcha_on="1")
         with pytest.raises(CaptchaRequiredError) as exc_info:
-            client._handle_response(response)
+            client._parse_json_response(response_text)
         assert exc_info.value.recoverable is False
 
     def test_captcha_required_even_with_error_status_zero(self):
         """captcha_on=1 should raise CaptchaRequiredError even when error_status=0 (no error)."""
-        client, response = self._create_auth_error_response("0", captcha_on="1")
+        client, response_text = self._create_auth_error_text("0", captcha_on="1")
         with pytest.raises(CaptchaRequiredError) as exc_info:
-            client._handle_response(response)
+            client._parse_json_response(response_text)
         assert exc_info.value.recoverable is False
 
     def test_empty_error_status_treated_as_zero(self):
@@ -282,13 +379,10 @@ class TestAuthenticationExceptions:
         session = MagicMock()
         client = RouterClient(host="http://192.168.1.1", session=session)
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.text = '{"error_status": "", "data": "value"}'
-        mock_response.json.return_value = {"error_status": "", "data": "value"}
+        response_text = '{"error_status": "", "data": "value"}'
 
         # Should not raise - empty string treated as 0
-        result = client._handle_response(mock_response)
+        result = client._parse_json_response(response_text)
         assert "data" in result
 
     @patch("requests.Session")

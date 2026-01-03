@@ -232,7 +232,12 @@ class RouterClient:
 
     def _handle_response(self, response: requests.Response) -> str:
         """
-        Handle API response, checking for authentication errors.
+        Handle API response - log and check HTTP status.
+
+        JSON parsing and auth error detection are NOT done here to avoid
+        double parsing. Callers must use appropriate methods:
+        - _parse_json_response(): For JSON endpoints (validates auth errors)
+        - _check_for_error_response(): For non-JSON endpoints that need auth check
 
         Args:
             response: The HTTP response to handle
@@ -241,26 +246,15 @@ class RouterClient:
             Response text
 
         Raises:
-            SessionExpiredError: If session expired (error_status 1-2, recoverable)
-            CaptchaRequiredError: If CAPTCHA is required (captcha_on=1)
-            InvalidCredentialsError: If credentials are invalid (error_status 3, 7)
-            AccountLockedError: If account is locked (error_status 11)
-            AuthenticationBlockedError: For other auth errors (error_status 4-10, 12+)
+            HTTPError: If HTTP status indicates an error
         """
         # Mask sensitive data BEFORE truncating to prevent partial field leakage
         masked_body = mask_sensitive_data(response.text)
         logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
         response.raise_for_status()
-        try:
-            data = response.json()
-            if "error_status" in data:
-                self._handle_auth_error(data)
-        except ValueError:
-            # Catch ValueError (parent of json.JSONDecodeError and requests.JSONDecodeError).
-            # Many router endpoints return non-JSON responses (e.g., ajax_coretmp.asp returns
-            # JavaScript). We only check for auth errors in JSON responses; non-JSON responses
-            # are processed by specific callers.
-            pass
+        # Note: JSON parsing and error checking is NOT done here to avoid double parsing.
+        # Callers should use _parse_json_response() for JSON endpoints, which validates
+        # for auth errors. Non-JSON endpoints use _check_for_error_response() if needed.
         return response.text
 
     @staticmethod
@@ -350,6 +344,61 @@ class RouterClient:
         # All other errors (4, 5, 8, 9, 10, 12+) - blocked, non-recoverable
         raise AuthenticationBlockedError(error_status)
 
+    def _check_for_error_response(self, response_text: str) -> None:
+        """
+        Check if response contains an error indicator and raise appropriate exception.
+
+        Use this for non-JSON endpoints (like ajax_coretmp.asp) that normally return
+        non-JSON responses but may return JSON error responses when auth fails.
+
+        Args:
+            response_text: Raw response text from router
+
+        Raises:
+            SessionExpiredError: If session expired (error_status 1-2)
+            CaptchaRequiredError: If CAPTCHA is required (captcha_on=1)
+            InvalidCredentialsError: If credentials are invalid (error_status 3, 7)
+            AccountLockedError: If account is locked (error_status 11)
+            AuthenticationBlockedError: For other auth errors (error_status 4-10, 12+)
+        """
+        try:
+            data = json.loads(response_text)
+            if isinstance(data, dict) and "error_status" in data:
+                self._handle_auth_error(data)
+        except json.JSONDecodeError:
+            pass  # Not valid JSON - expected for non-JSON endpoints
+
+    def _parse_json_response(self, response_text: str) -> dict[str, Any]:
+        """
+        Parse JSON response and validate for authentication errors.
+
+        Use this method instead of json.loads() to ensure error responses
+        are properly detected and handled. The router may return error responses
+        like {"error_status":"2", "captcha_on":"0"} for any API call when
+        the session expires or authentication fails.
+
+        Args:
+            response_text: Raw response text from router
+
+        Returns:
+            Parsed JSON data as dictionary
+
+        Raises:
+            json.JSONDecodeError: If response is not valid JSON
+            SessionExpiredError: If session expired (error_status 1-2)
+            CaptchaRequiredError: If CAPTCHA is required (captcha_on=1)
+            InvalidCredentialsError: If credentials are invalid (error_status 3, 7)
+            AccountLockedError: If account is locked (error_status 11)
+            AuthenticationBlockedError: For other auth errors (error_status 4-10, 12+)
+            ValueError: If response is valid JSON but not a dict
+        """
+        data = json.loads(response_text)
+        if isinstance(data, dict):
+            if "error_status" in data:
+                self._handle_auth_error(data)
+            return data
+        raise ValueError(f"Expected JSON object, got {type(data).__name__}")
+
     def __get_hook(self, name: str, args: str = "") -> str:
         return self._request_with_reauth(self.__get_hook_impl, name, args)
 
@@ -360,10 +409,10 @@ class RouterClient:
         response = self.session.get(url, params=params, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
         return self._handle_response(response)
 
-    def __get_nvram(self, *nvrams: str):
+    def __get_nvram(self, *nvrams: str) -> dict[str, Any]:
         return self._request_with_reauth(self.__get_nvram_impl, *nvrams)
 
-    def __get_nvram_impl(self, *nvrams: str):
+    def __get_nvram_impl(self, *nvrams: str) -> dict[str, Any]:
         def __nvramget(*vars_: str) -> str:
             return ";".join(f"nvram_get({v})" for v in vars_)
 
@@ -373,7 +422,7 @@ class RouterClient:
         response = self.session.get(url, params=params, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
 
         text = self._handle_response(response)
-        return json.loads(text)
+        return self._parse_json_response(text)
 
     def _request_with_reauth(self, func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         """
@@ -430,12 +479,20 @@ class RouterClient:
         url = f"{self.host}/ajax_coretmp.asp"
         logger.debug("Request: GET %s", url)
         response = self.session.get(url, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
-        self._handle_response(response)
-        payload = response.text
+        payload = self._handle_response(response)
+        # Check for auth errors - ajax_coretmp.asp returns JavaScript but may return JSON on auth failure
+        self._check_for_error_response(payload)
         pattern = re.compile(r'(\w+)\s*=\s*("?[^";]+"?);')
         parsed = {m.group(1): m.group(2).strip('"') for m in pattern.finditer(payload)}
 
-        return TemperatureInfo(cpu=float(parsed["curr_cpuTemp"]))
+        cpu_temp_str = parsed.get("curr_cpuTemp")
+        if cpu_temp_str is None:
+            raise ValueError("Temperature data 'curr_cpuTemp' not found in router response")
+        try:
+            cpu_temp = float(cpu_temp_str)
+        except ValueError as e:
+            raise ValueError(f"Invalid temperature value: {cpu_temp_str}") from e
+        return TemperatureInfo(cpu=cpu_temp)
 
     @track_api("get_uptime")
     def get_uptime(self) -> UptimeInfo:
@@ -446,19 +503,50 @@ class RouterClient:
             return cast(UptimeInfo, cached)
 
         response = self.__get_hook("uptime")
-        data = json.loads(response)
-        uptime_raw = data["uptime"].split("(")
-        systime = datetime.strptime(uptime_raw[0].strip(), "%a, %d %b %Y %H:%M:%S %z")
-        boottime = int(uptime_raw[1].split(" ")[0])
+        data = self._parse_json_response(response)
+
+        uptime_str = data.get("uptime")
+        if not uptime_str:
+            raise ValueError("Uptime data not found in router response")
+
+        # Expected format: "Mon, 01 Jan 2024 12:00:00 +0000 (12345 secs since boot)"
+        try:
+            uptime_raw = uptime_str.split("(")
+            if len(uptime_raw) < 2:
+                raise ValueError(f"Unexpected uptime format: {uptime_str}")
+            systime = datetime.strptime(uptime_raw[0].strip(), "%a, %d %b %Y %H:%M:%S %z")
+            boottime = int(uptime_raw[1].split(" ")[0])
+        except (ValueError, IndexError) as e:
+            raise ValueError(f"Failed to parse uptime: {uptime_str}") from e
+
         result = UptimeInfo(systime=systime, boottime=boottime)
         self._cache[cache_key] = result
         return result
 
     @staticmethod
     def _parse_schedule(schedule: str) -> RebootScheduleConf:
-        mask = int(schedule[:7], 2)
-        hh = int(schedule[7:9])
-        mm = int(schedule[9:11])
+        """Parse reboot schedule string from router.
+
+        Args:
+            schedule: Schedule string in format "DDDDDDDHHHMM" where:
+                - D (7 chars): Binary weekday mask (1=enabled)
+                - HH (2 chars): Hour (00-23)
+                - MM (2 chars): Minute (00-59)
+
+        Returns:
+            Parsed schedule configuration
+
+        Raises:
+            ValueError: If schedule format is invalid
+        """
+        if len(schedule) < 11:
+            raise ValueError(f"Invalid schedule format: expected at least 11 chars, got {len(schedule)}")
+        try:
+            mask = int(schedule[:7], 2)
+            hh = int(schedule[7:9])
+            mm = int(schedule[9:11])
+        except ValueError as e:
+            raise ValueError(f"Invalid schedule format: {schedule}") from e
         return RebootScheduleConf(weekday_mask=mask, hh=hh, mm=mm)
 
     def get_reboot_schedule_time(self) -> RebootScheduleInfo | None:
@@ -493,8 +581,10 @@ class RouterClient:
 
         for cid in cpu_ids:
             prefix = f"cpu{cid}"
-
-            cpu_infos.append(CpuInfo(usage=int(data[f"{prefix}_usage"]), total=int(data[f"{prefix}_total"])))
+            cpu_infos.append(CpuInfo(
+                usage=safe_int(data.get(f"{prefix}_usage", 0)),
+                total=safe_int(data.get(f"{prefix}_total", 0)),
+            ))
 
         return cpu_infos
 
@@ -504,16 +594,22 @@ class RouterClient:
         # Router returns malformed JSON wrapper: {"memory_usage":"mem_total":"..."}
         # We need to skip the wrapper and extract the embedded object.
         data = self._parse_embedded_json(response, "memory_usage")
-        return MemoryInfo(total_kb=int(data["mem_total"]), used_kb=int(data["mem_used"]), free_kb=int(data["mem_free"]))
+        return MemoryInfo(
+            total_kb=safe_int(data.get("mem_total", 0)),
+            used_kb=safe_int(data.get("mem_used", 0)),
+            free_kb=safe_int(data.get("mem_free", 0)),
+        )
 
-    @staticmethod
-    def _parse_embedded_json(response: str, wrapper_key: str) -> dict[str, Any]:
+    def _parse_embedded_json(self, response: str, wrapper_key: str) -> dict[str, Any]:
         """
         Parse embedded JSON from router's malformed wrapper format.
 
         Router returns data like: {"wrapper_key":"actual_key":"value",...}
         This extracts the embedded object by finding the colon after wrapper_key
         and parsing from there with a leading brace.
+
+        Before parsing, checks if the response is actually an error response
+        (valid JSON with error_status) and raises appropriate exception.
 
         Args:
             response: Raw response text from router
@@ -524,7 +620,16 @@ class RouterClient:
 
         Raises:
             ValueError: If response format is invalid
+            SessionExpiredError: If session expired (error_status 1-2)
+            CaptchaRequiredError: If CAPTCHA is required (captcha_on=1)
+            InvalidCredentialsError: If credentials are invalid (error_status 3, 7)
+            AccountLockedError: If account is locked (error_status 11)
+            AuthenticationBlockedError: For other auth errors (error_status 4-10, 12+)
         """
+        # Check if response is actually an error response (valid JSON with error_status)
+        # before attempting to parse as embedded format
+        self._check_for_error_response(response)
+
         # Find the wrapper key and the colon after it
         key_pattern = f'"{wrapper_key}":'
         key_pos = response.find(key_pattern)
@@ -532,11 +637,27 @@ class RouterClient:
             raise ValueError(f"Invalid response: wrapper key '{wrapper_key}' not found")
 
         # Skip past the wrapper key and colon to get the embedded content
+        # The response format is: {"wrapper_key":"content...}
+        # We need to extract "content" and remove the trailing wrapper brace
         content_start = key_pos + len(key_pattern)
-        embedded_content = response[content_start:].rstrip().rstrip("}")
+        embedded_content = response[content_start:].rstrip()
 
-        # Add braces to make it valid JSON
-        return cast(dict[str, Any], json.loads("{" + embedded_content + "}"))
+        # Remove exactly one trailing "}" (the wrapper closing brace)
+        # Using [:-1] instead of rstrip("}") to avoid removing multiple braces
+        # which would corrupt nested JSON objects
+        if not embedded_content.endswith("}"):
+            raise ValueError(f"Invalid response format: expected trailing '}}' in '{wrapper_key}' content")
+        embedded_content = embedded_content[:-1]
+
+        # Add braces to make it valid JSON and parse
+        try:
+            data = json.loads("{" + embedded_content + "}")
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse embedded JSON for '{wrapper_key}': {e}") from e
+
+        if not isinstance(data, dict):
+            raise ValueError(f"Expected embedded JSON object for '{wrapper_key}', got {type(data).__name__}")
+        return data
 
     # -------------------------------------------------------------------------
     # Router info API methods
@@ -603,7 +724,7 @@ class RouterClient:
             return cast(RouterFeatureCapabilities, cached)
 
         response = self.__get_hook("get_ui_support")
-        data = json.loads(response)
+        data = self._parse_json_response(response)
         cap = RouterFeatureCapabilities(data["get_ui_support"])
         self._cache[cache_key] = cap
         return cap
@@ -653,7 +774,7 @@ class RouterClient:
     @track_api("get_netdev")
     def get_netdev(self) -> NetdevInfo:
         response = self.__get_hook("netdev", "appobj")
-        data = json.loads(response)
+        data = self._parse_json_response(response)
         netdev = data["netdev"]
 
         bridge = ThroughputInfo(
@@ -697,23 +818,26 @@ class RouterClient:
             return cast(DualWanInfo, cached)
 
         nvrams = self.__get_nvram("wans_dualwan", "wan0_enable", "wan1_enable", "wans_mode")
-        active_wan_unit = int(json.loads(self.__get_hook("get_wan_unit"))["get_wan_unit"])
+        wan_unit_response = self.__get_hook("get_wan_unit")
+        active_wan_unit = safe_int(self._parse_json_response(wan_unit_response).get("get_wan_unit", 0))
         caps = self.get_supported_features()
 
-        wans_dualwan_raw = nvrams["wans_dualwan"].split()
+        wans_dualwan_raw = nvrams.get("wans_dualwan", "").split()
         wans_dualwan: dict[int, DualWanOrigin] = {
             i: DualWanOrigin(part.lower()) if part.lower() in DualWanOrigin._value2member_map_ else DualWanOrigin.NONE
             for i, part in enumerate(wans_dualwan_raw)
         }
 
         dualwan_enabled = caps.is_supported("dualwan") and DualWanOrigin.NONE not in set(wans_dualwan.values())
+        # Default to FAIL_OVER mode if wans_mode not provided
+        wans_mode_str = nvrams.get("wans_mode", WanMode.FAIL_OVER.value)
         result = DualWanInfo(
             wan_origins=wans_dualwan,
             wan0_enable=to_bool(nvrams.get("wan0_enable", "0")),
             wan1_enable=to_bool(nvrams.get("wan1_enable", "0")),
             active_wan_unit=active_wan_unit,
             enabled=dualwan_enabled,
-            wans_mode=WanMode(nvrams["wans_mode"]),
+            wans_mode=WanMode(wans_mode_str),
         )
         self._cache[cache_key] = result
         return result
@@ -795,7 +919,7 @@ class RouterClient:
 
     def get_wl_nband_info(self) -> dict[WifiBand, int]:
         response = self.__get_hook("wl_nband_info")
-        wl_nband_info = json.loads(response)["wl_nband_info"]
+        wl_nband_info = self._parse_json_response(response)["wl_nband_info"]
         wl_nband_array = [int(v) for v in wl_nband_info]
         counts = Counter(wl_nband_array)
 
@@ -861,7 +985,7 @@ class RouterClient:
 
     def get_plugged_usb_devices(self) -> list[UsbDeviceType]:
         response = self.__get_hook("show_usb_path")
-        all_usb_statuses = json.loads(response)["show_usb_path"]
+        all_usb_statuses = self._parse_json_response(response)["show_usb_path"]
         usb_devices = []
         for usb_status in all_usb_statuses:
             usb_devices.append(UsbDeviceType(usb_status))
@@ -872,21 +996,25 @@ class RouterClient:
         return self._request_with_reauth(self._get_port_status_infos_impl, mac)
 
     def _get_port_status_infos_impl(self, mac: str) -> list[PortInfo]:
+        if not is_valid_mac(mac):
+            raise ValueError(f"Invalid MAC address: {mac}")
+
         url = f"{self.host}/get_port_status.cgi"
         params = {"node_mac": mac}
         logger.debug("Request: GET %s | Params: %s", url, params)
         response = self.session.get(url, params=params, headers=ASUS_CLIENT_DEFAULT_HEADERS, timeout=DEFAULT_TIMEOUT)
-        self._handle_response(response)
+        response_text = self._handle_response(response)
+        data = self._parse_json_response(response_text)
 
         port_infos: list[PortInfo] = []
-        port_info_raw = response.json().get("port_info", {}).get(mac, {})
-        for port_id, data in port_info_raw.items():
+        port_info_raw = data.get("port_info", {}).get(mac, {})
+        for port_id, port_data in port_info_raw.items():
             port_info = PortInfo(
                 id=port_id,
-                plugged=to_bool(data["is_on"]),
-                capability=PortCapability(int(data["cap"])),
-                max_supported_speed_rate_mbps=int(data["max_rate"]),
-                current_speed_rate_mbps=int(data["link_rate"]),
+                plugged=to_bool(port_data["is_on"]),
+                capability=PortCapability(int(port_data["cap"])),
+                max_supported_speed_rate_mbps=int(port_data["max_rate"]),
+                current_speed_rate_mbps=int(port_data["link_rate"]),
             )
             port_infos.append(port_info)
         return port_infos
@@ -990,8 +1118,10 @@ class RouterClient:
     @track_api("get_clients")
     def get_clients(self) -> list[BaseClientInfo]:
         caps = self.get_supported_features()
-        get_clientlist = json.loads(self.__get_hook("get_clientlist")).get("get_clientlist")
-        get_clientlist_from_db = json.loads(self.__get_hook("get_clientlist_from_json_database")).get(
+        clientlist_response = self.__get_hook("get_clientlist")
+        get_clientlist = self._parse_json_response(clientlist_response).get("get_clientlist")
+        clientlist_db_response = self.__get_hook("get_clientlist_from_json_database")
+        get_clientlist_from_db = self._parse_json_response(clientlist_db_response).get(
             "get_clientlist_from_json_database"
         )
         clients: list[BaseClientInfo] = []
