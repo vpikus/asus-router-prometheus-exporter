@@ -88,6 +88,7 @@ class SelfMetrics:
             self._circuit_breaker_state,
             self._circuit_breaker_failure_count,
             self._circuit_breaker_transitions,
+            self._circuit_breaker_recovery_time,
             self._retry_attempts,
             self._retries_exhausted,
             self._cache_hits,
@@ -122,6 +123,11 @@ class SelfMetrics:
             "asus_router_exporter_circuit_breaker_state_transitions_total",
             "Total number of circuit breaker state transitions",
             ["from_state", "to_state"],
+            registry=self._registry,
+        )
+        self._circuit_breaker_recovery_time = Gauge(
+            "asus_router_exporter_circuit_breaker_recovery_seconds",
+            "Seconds until circuit breaker attempts recovery (0 when closed)",
             registry=self._registry,
         )
 
@@ -207,6 +213,10 @@ class SelfMetrics:
     def record_circuit_breaker_transition(self, from_state: str, to_state: str) -> None:
         """Record a circuit breaker state transition."""
         self._circuit_breaker_transitions.labels(from_state=from_state, to_state=to_state).inc()
+
+    def set_circuit_breaker_recovery_time(self, seconds: float) -> None:
+        """Set the time until circuit breaker attempts recovery (0 when closed)."""
+        self._circuit_breaker_recovery_time.set(max(0, seconds))
 
     # -------------------------------------------------------------------------
     # Retry recording methods

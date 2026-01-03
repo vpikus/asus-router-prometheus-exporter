@@ -101,6 +101,18 @@ class TestCircuitBreakerMetrics:
         assert open_to_half_open == 1
         assert half_open_to_closed == 1
 
+    def test_set_circuit_breaker_recovery_time(self) -> None:
+        """Test setting circuit breaker recovery time."""
+        self.metrics.set_circuit_breaker_recovery_time(60.0)
+        value = self.registry.get_sample_value("asus_router_exporter_circuit_breaker_recovery_seconds")
+        assert value == 60.0
+
+    def test_set_circuit_breaker_recovery_time_clamps_negative(self) -> None:
+        """Test that negative recovery time is clamped to 0."""
+        self.metrics.set_circuit_breaker_recovery_time(-5.0)
+        value = self.registry.get_sample_value("asus_router_exporter_circuit_breaker_recovery_seconds")
+        assert value == 0.0
+
 
 class TestRetryMetrics:
     """Tests for retry metrics."""
