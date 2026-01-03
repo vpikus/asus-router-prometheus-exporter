@@ -10,12 +10,15 @@ Supports:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any
 
 from .exceptions import ConfigurationError
+
+logger = logging.getLogger(__name__)
 
 # Try to import yaml, but make it optional
 try:
@@ -70,26 +73,21 @@ class Config:
     # Pattern for environment variable substitution: ${VAR} or ${VAR:default}
     ENV_VAR_PATTERN = re.compile(r"\$\{([^:}]+)(?::([^}]*))?\}")
 
-    def __init__(self, data: dict[str, Any]):
+    def __init__(self, data: dict[str, Any], *, validate: bool = True):
         """
         Initialize configuration.
 
-        Design Note on Validation:
-            This config module intentionally does not validate bounds (e.g., port
-            ranges, timeout positivity). This is by design because:
-            1. External validation occurs at use time (OS rejects invalid ports
-               when binding, requests library handles invalid timeouts)
-            2. Components that consume config values can validate in context
-            3. Adding bounds validation here would duplicate logic and add
-               complexity without meaningful safety benefits
-            4. Invalid values will fail fast with clear error messages from the
-               actual consumer (e.g., "Cannot bind to port -1")
-
         Args:
             data: Configuration dictionary
+            validate: If True, validate configuration values (default: True)
+
+        Raises:
+            ConfigurationError: If validation is enabled and config values are invalid
         """
         self._data = data
         self._resolve_env_vars(self._data)
+        if validate:
+            self._validate()
 
     @classmethod
     def load(cls, config_path: str | None = None) -> Config:
@@ -229,6 +227,12 @@ class Config:
         try:
             return int(value)
         except ValueError:
+            logger.warning(
+                "Invalid integer value for %s: %r, using default: %d",
+                name,
+                value,
+                default,
+            )
             return default
 
     @staticmethod
@@ -240,6 +244,12 @@ class Config:
         try:
             return float(value)
         except ValueError:
+            logger.warning(
+                "Invalid float value for %s: %r, using default: %s",
+                name,
+                value,
+                default,
+            )
             return default
 
     @classmethod
@@ -391,3 +401,85 @@ class Config:
 
     def __repr__(self) -> str:
         return f"Config({list(self._data.keys())})"
+
+    def _validate(self) -> None:
+        """
+        Validate configuration values.
+
+        Raises:
+            ConfigurationError: If any configuration value is invalid
+        """
+        errors: list[str] = []
+
+        # Validate port (1-65535)
+        # Note: isinstance(bool, int) is True in Python, so we explicitly exclude booleans
+        port = self.get("exporter.port")
+        if port is not None:
+            if not isinstance(port, int) or isinstance(port, bool) or port < 1 or port > 65535:
+                errors.append(f"exporter.port must be an integer between 1 and 65535, got: {port}")
+
+        # Validate timeout (positive)
+        timeout = self.get("router.timeout")
+        if timeout is not None:
+            if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
+                errors.append(f"router.timeout must be a positive number, got: {timeout}")
+
+        # Validate scrape_interval (positive)
+        scrape_interval = self.get("exporter.scrape_interval")
+        if scrape_interval is not None:
+            if not isinstance(scrape_interval, (int, float)) or isinstance(scrape_interval, bool) or scrape_interval <= 0:
+                errors.append(f"exporter.scrape_interval must be a positive number, got: {scrape_interval}")
+
+        # Validate retry settings
+        retry = self.get("error_handling.retry", {})
+        if retry and not isinstance(retry, dict):
+            errors.append(f"error_handling.retry must be a dictionary, got: {type(retry).__name__}")
+        elif isinstance(retry, dict) and retry:
+            max_attempts = retry.get("max_attempts")
+            if max_attempts is not None:
+                if not isinstance(max_attempts, int) or isinstance(max_attempts, bool) or max_attempts < 1:
+                    errors.append(f"error_handling.retry.max_attempts must be a positive integer, got: {max_attempts}")
+
+            backoff_factor = retry.get("backoff_factor")
+            if backoff_factor is not None:
+                if not isinstance(backoff_factor, (int, float)) or isinstance(backoff_factor, bool) or backoff_factor <= 0:
+                    errors.append(
+                        f"error_handling.retry.backoff_factor must be a positive number, got: {backoff_factor}"
+                    )
+
+            max_delay = retry.get("max_delay")
+            if max_delay is not None:
+                if not isinstance(max_delay, (int, float)) or isinstance(max_delay, bool) or max_delay <= 0:
+                    errors.append(f"error_handling.retry.max_delay must be a positive number, got: {max_delay}")
+
+        # Validate circuit breaker settings
+        circuit = self.get("error_handling.circuit_breaker", {})
+        if circuit and not isinstance(circuit, dict):
+            errors.append(f"error_handling.circuit_breaker must be a dictionary, got: {type(circuit).__name__}")
+        elif isinstance(circuit, dict) and circuit:
+            failure_threshold = circuit.get("failure_threshold")
+            if failure_threshold is not None:
+                if not isinstance(failure_threshold, int) or isinstance(failure_threshold, bool) or failure_threshold < 1:
+                    errors.append(
+                        f"error_handling.circuit_breaker.failure_threshold must be a positive integer, "
+                        f"got: {failure_threshold}"
+                    )
+
+            recovery_timeout = circuit.get("recovery_timeout")
+            if recovery_timeout is not None:
+                if not isinstance(recovery_timeout, (int, float)) or isinstance(recovery_timeout, bool) or recovery_timeout <= 0:
+                    errors.append(
+                        f"error_handling.circuit_breaker.recovery_timeout must be a positive number, "
+                        f"got: {recovery_timeout}"
+                    )
+
+            half_open_max_calls = circuit.get("half_open_max_calls")
+            if half_open_max_calls is not None:
+                if not isinstance(half_open_max_calls, int) or isinstance(half_open_max_calls, bool) or half_open_max_calls < 1:
+                    errors.append(
+                        f"error_handling.circuit_breaker.half_open_max_calls must be a positive integer, "
+                        f"got: {half_open_max_calls}"
+                    )
+
+        if errors:
+            raise ConfigurationError("Invalid configuration:\n  - " + "\n  - ".join(errors))
