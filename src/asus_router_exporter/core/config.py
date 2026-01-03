@@ -427,14 +427,18 @@ class Config:
         # Validate scrape_interval (positive)
         scrape_interval = self.get("exporter.scrape_interval")
         if scrape_interval is not None:
-            if not isinstance(scrape_interval, (int, float)) or isinstance(scrape_interval, bool) or scrape_interval <= 0:
+            if (
+                not isinstance(scrape_interval, (int, float))
+                or isinstance(scrape_interval, bool)
+                or scrape_interval <= 0
+            ):
                 errors.append(f"exporter.scrape_interval must be a positive number, got: {scrape_interval}")
 
         # Validate retry settings
         retry = self.get("error_handling.retry", {})
-        if retry and not isinstance(retry, dict):
+        if not isinstance(retry, dict):
             errors.append(f"error_handling.retry must be a dictionary, got: {type(retry).__name__}")
-        elif isinstance(retry, dict) and retry:
+        elif retry:
             max_attempts = retry.get("max_attempts")
             if max_attempts is not None:
                 if not isinstance(max_attempts, int) or isinstance(max_attempts, bool) or max_attempts < 1:
@@ -442,7 +446,11 @@ class Config:
 
             backoff_factor = retry.get("backoff_factor")
             if backoff_factor is not None:
-                if not isinstance(backoff_factor, (int, float)) or isinstance(backoff_factor, bool) or backoff_factor <= 0:
+                if (
+                    not isinstance(backoff_factor, (int, float))
+                    or isinstance(backoff_factor, bool)
+                    or backoff_factor <= 0
+                ):
                     errors.append(
                         f"error_handling.retry.backoff_factor must be a positive number, got: {backoff_factor}"
                     )
@@ -454,12 +462,16 @@ class Config:
 
         # Validate circuit breaker settings
         circuit = self.get("error_handling.circuit_breaker", {})
-        if circuit and not isinstance(circuit, dict):
+        if not isinstance(circuit, dict):
             errors.append(f"error_handling.circuit_breaker must be a dictionary, got: {type(circuit).__name__}")
-        elif isinstance(circuit, dict) and circuit:
+        elif circuit:
             failure_threshold = circuit.get("failure_threshold")
             if failure_threshold is not None:
-                if not isinstance(failure_threshold, int) or isinstance(failure_threshold, bool) or failure_threshold < 1:
+                if (
+                    not isinstance(failure_threshold, int)
+                    or isinstance(failure_threshold, bool)
+                    or failure_threshold < 1
+                ):
                     errors.append(
                         f"error_handling.circuit_breaker.failure_threshold must be a positive integer, "
                         f"got: {failure_threshold}"
@@ -467,7 +479,11 @@ class Config:
 
             recovery_timeout = circuit.get("recovery_timeout")
             if recovery_timeout is not None:
-                if not isinstance(recovery_timeout, (int, float)) or isinstance(recovery_timeout, bool) or recovery_timeout <= 0:
+                if (
+                    not isinstance(recovery_timeout, (int, float))
+                    or isinstance(recovery_timeout, bool)
+                    or recovery_timeout <= 0
+                ):
                     errors.append(
                         f"error_handling.circuit_breaker.recovery_timeout must be a positive number, "
                         f"got: {recovery_timeout}"
@@ -475,7 +491,11 @@ class Config:
 
             half_open_max_calls = circuit.get("half_open_max_calls")
             if half_open_max_calls is not None:
-                if not isinstance(half_open_max_calls, int) or isinstance(half_open_max_calls, bool) or half_open_max_calls < 1:
+                if (
+                    not isinstance(half_open_max_calls, int)
+                    or isinstance(half_open_max_calls, bool)
+                    or half_open_max_calls < 1
+                ):
                     errors.append(
                         f"error_handling.circuit_breaker.half_open_max_calls must be a positive integer, "
                         f"got: {half_open_max_calls}"

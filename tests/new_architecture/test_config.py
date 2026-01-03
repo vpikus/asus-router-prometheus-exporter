@@ -352,18 +352,20 @@ class TestConfigValidation:
 
     def test_valid_config_passes_validation(self):
         """Test that valid configuration passes validation."""
-        config = Config({
-            "exporter": {"port": 8000, "scrape_interval": 30},
-            "router": {"timeout": 10},
-            "error_handling": {
-                "retry": {"max_attempts": 3, "backoff_factor": 2.0, "max_delay": 30.0},
-                "circuit_breaker": {
-                    "failure_threshold": 5,
-                    "recovery_timeout": 60.0,
-                    "half_open_max_calls": 3,
+        config = Config(
+            {
+                "exporter": {"port": 8000, "scrape_interval": 30},
+                "router": {"timeout": 10},
+                "error_handling": {
+                    "retry": {"max_attempts": 3, "backoff_factor": 2.0, "max_delay": 30.0},
+                    "circuit_breaker": {
+                        "failure_threshold": 5,
+                        "recovery_timeout": 60.0,
+                        "half_open_max_calls": 3,
+                    },
                 },
-            },
-        })
+            }
+        )
         # Should not raise
         assert config.get("exporter.port") == 8000
 
@@ -456,10 +458,12 @@ class TestConfigValidation:
     def test_multiple_validation_errors(self):
         """Test that multiple errors are collected and reported together."""
         with pytest.raises(ConfigurationError) as exc_info:
-            Config({
-                "exporter": {"port": -1, "scrape_interval": 0},
-                "router": {"timeout": -5},
-            })
+            Config(
+                {
+                    "exporter": {"port": -1, "scrape_interval": 0},
+                    "router": {"timeout": -5},
+                }
+            )
         error_msg = str(exc_info.value)
         assert "exporter.port" in error_msg
         assert "exporter.scrape_interval" in error_msg
@@ -505,3 +509,28 @@ class TestConfigValidation:
         """Test that integer circuit_breaker raises ConfigurationError."""
         with pytest.raises(ConfigurationError, match="error_handling.circuit_breaker must be a dictionary"):
             Config({"error_handling": {"circuit_breaker": 123}})
+
+    def test_invalid_retry_falsy_non_dict_false(self):
+        """Test that False retry raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry must be a dictionary"):
+            Config({"error_handling": {"retry": False}})
+
+    def test_invalid_retry_falsy_non_dict_zero(self):
+        """Test that zero retry raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry must be a dictionary"):
+            Config({"error_handling": {"retry": 0}})
+
+    def test_invalid_retry_falsy_non_dict_empty_string(self):
+        """Test that empty string retry raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.retry must be a dictionary"):
+            Config({"error_handling": {"retry": ""}})
+
+    def test_invalid_circuit_breaker_falsy_non_dict_false(self):
+        """Test that False circuit_breaker raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.circuit_breaker must be a dictionary"):
+            Config({"error_handling": {"circuit_breaker": False}})
+
+    def test_invalid_circuit_breaker_falsy_non_dict_empty_list(self):
+        """Test that empty list circuit_breaker raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="error_handling.circuit_breaker must be a dictionary"):
+            Config({"error_handling": {"circuit_breaker": []}})
