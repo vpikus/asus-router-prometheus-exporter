@@ -833,7 +833,7 @@ class RouterClient:
         wifi_info = WifiInfo(
             bands_count=wl_nband_info,
             wps_enabled=to_bool(nvrams.get("wps_enable", "0")),
-            smart_connect_enabled=to_bool(nvrams.get("smart_connect_enable", "0")),
+            smart_connect_enabled=to_bool(nvrams.get("smart_connect_x", "0")),
         )
 
         caps = self.get_supported_features()
