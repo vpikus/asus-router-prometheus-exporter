@@ -6,9 +6,10 @@ import logging
 import re
 import threading
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar, cast
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -85,6 +86,9 @@ from .models import (
     WifiUnit,
     WifiWpsWep,
 )
+
+# Type variable for generic functions
+_T = TypeVar("_T")
 
 # Configure logger with SensitiveFormatter to ensure credentials are masked
 # even when this module is used standalone (without asus_router_prometheus.py).
@@ -377,7 +381,7 @@ class RouterClient:
         text = self._handle_response(response)
         return json.loads(text)
 
-    def _request_with_reauth(self, func, *args, **kwargs):
+    def _request_with_reauth(self, func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         """
         Execute a request function with automatic re-authentication on session expiry.
 
@@ -439,7 +443,7 @@ class RouterClient:
         cache_key = "uptime"
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(UptimeInfo, cached)
 
         response = self.__get_hook("uptime")
         data = json.loads(response)
@@ -501,7 +505,7 @@ class RouterClient:
         return MemoryInfo(total_kb=int(data["mem_total"]), used_kb=int(data["mem_used"]), free_kb=int(data["mem_free"]))
 
     @staticmethod
-    def _parse_embedded_json(response: str, wrapper_key: str) -> dict:
+    def _parse_embedded_json(response: str, wrapper_key: str) -> dict[str, Any]:
         """
         Parse embedded JSON from router's malformed wrapper format.
 
@@ -530,7 +534,7 @@ class RouterClient:
         embedded_content = response[content_start:].rstrip().rstrip("}")
 
         # Add braces to make it valid JSON
-        return json.loads("{" + embedded_content + "}")
+        return cast(dict[str, Any], json.loads("{" + embedded_content + "}"))
 
     def get_wl_nband_info(self) -> dict[WifiBand, int]:
         response = self.__get_hook("wl_nband_info")
@@ -690,7 +694,7 @@ class RouterClient:
         cache_key = "supported_features"
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(RouterFeatureCapabilities, cached)
 
         response = self.__get_hook("get_ui_support")
         data = json.loads(response)
@@ -703,7 +707,7 @@ class RouterClient:
         cache_key = "sw_mode"
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(SwMode, cached)
 
         nvrams = self.__get_nvram("sw_mode", "wlc_psta", "wlc_express")
         sw_mode = int(nvrams["sw_mode"])
@@ -740,7 +744,7 @@ class RouterClient:
         cache_key = "dual_wan_info"
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(DualWanInfo, cached)
 
         nvrams = self.__get_nvram("wans_dualwan", "wan0_enable", "wan1_enable", "wans_mode")
         active_wan_unit = int(json.loads(self.__get_hook("get_wan_unit"))["get_wan_unit"])
