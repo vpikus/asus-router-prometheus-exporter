@@ -24,6 +24,17 @@ class RouterClientProtocol(Protocol):
         """
         ...
 
+    def check_and_reauthenticate(self) -> bool:
+        """Proactively re-authenticate if the configured interval has elapsed.
+
+        Should be called at the start of each collection cycle to prevent
+        session expiry during long-running operations.
+
+        Returns:
+            True if re-authentication was performed, False otherwise.
+        """
+        ...
+
     def get_info(self) -> Any:
         """Get router information."""
         ...

@@ -225,8 +225,24 @@ class TestContainerRouterClient:
         client = container.router_client
 
         assert client is mock_client
-        mock_factory_cls.assert_called_once_with("10.0.0.1")
+        mock_factory_cls.assert_called_once_with("10.0.0.1", reauth_interval=1800)
         mock_factory.auth.assert_called_once_with("admin:pass")
+
+    @patch("asus_router_exporter.client.RouterClientFactory")
+    def test_router_client_with_custom_reauth_interval(self, mock_factory_cls):
+        """Test that custom reauth_interval is passed to factory."""
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        mock_factory = MagicMock()
+        mock_factory.auth.return_value = mock_client
+        mock_factory_cls.return_value = mock_factory
+
+        config = Config({"router": {"host": "10.0.0.1", "auth": "admin:pass", "reauth_interval": 3600}})
+        container = Container(config)
+
+        # Access property to trigger creation
+        _ = container.router_client
+
+        mock_factory_cls.assert_called_once_with("10.0.0.1", reauth_interval=3600)
 
     @patch("asus_router_exporter.client.RouterClientFactory")
     def test_router_client_cached(self, mock_factory_cls):

@@ -91,6 +91,7 @@ class SelfMetrics:
             self._circuit_breaker_recovery_time,
             self._retry_attempts,
             self._retries_exhausted,
+            self._proactive_reauth,
             self._cache_hits,
             self._cache_misses,
             self._collector_success,
@@ -140,6 +141,13 @@ class SelfMetrics:
         self._retries_exhausted = Counter(
             "asus_router_exporter_retries_exhausted_total",
             "Total number of times all retries were exhausted",
+            registry=self._registry,
+        )
+
+        # Authentication metrics
+        self._proactive_reauth = Counter(
+            "asus_router_exporter_proactive_reauth_total",
+            "Total number of proactive re-authentications",
             registry=self._registry,
         )
 
@@ -229,6 +237,14 @@ class SelfMetrics:
     def record_retries_exhausted(self) -> None:
         """Record that all retries were exhausted."""
         self._retries_exhausted.inc()
+
+    # -------------------------------------------------------------------------
+    # Authentication recording methods
+    # -------------------------------------------------------------------------
+
+    def record_proactive_reauth(self) -> None:
+        """Record a proactive re-authentication event."""
+        self._proactive_reauth.inc()
 
     # -------------------------------------------------------------------------
     # Cache recording methods

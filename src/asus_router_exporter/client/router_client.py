@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import threading
+import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -15,12 +16,9 @@ from typing import Any, TypeVar, cast
 import requests
 
 from ..core.exceptions import (
-    AccountLockedError,
-    AuthenticationBlockedError,
     AuthenticationError,
-    CaptchaRequiredError,
-    InvalidCredentialsError,
     SessionExpiredError,
+    handle_auth_error,
 )
 from ..metrics.self_metrics import SelfMetrics
 from ..utils.logging import SensitiveFormatter, mask_sensitive_data
@@ -34,7 +32,7 @@ from ..utils.parsing import (
     trim_to_none,
 )
 from .decorators import track_api
-from .factory import ASUS_CLIENT_DEFAULT_HEADERS, DEFAULT_TIMEOUT, create_session
+from .factory import ASUS_CLIENT_DEFAULT_HEADERS, DEFAULT_TIMEOUT, authenticate_session
 from .models import (
     BaseClientInfo,
     ClientAmeshInfo,
@@ -133,12 +131,20 @@ class RouterClient:
 
         Cached methods: get_supported_features(), get_sw_mode(), get_dual_wan_info(),
         get_uptime()
+
+    Proactive Re-authentication:
+        To prevent session expiry during long-running operation, the client can
+        proactively re-authenticate before the session expires. Configure via
+        `reauth_interval_seconds` (default: 1800 = 30 minutes, 0 = disabled).
+        Call `check_and_reauthenticate()` at the start of each collection cycle.
     """
 
     host: str
     session: requests.Session
     _auth_token: str = ""
     _cache: dict[str, Any] = field(default_factory=dict)
+    _last_auth_time: float | None = field(default=None)  # monotonic time of last auth
+    _reauth_interval_seconds: int = field(default=1800)
 
     def close(self) -> None:
         """Close the underlying session and release resources."""
@@ -153,6 +159,56 @@ class RouterClient:
         fresh data is fetched from the router.
         """
         self._cache.clear()
+
+    def needs_reauthentication(self) -> bool:
+        """Check if proactive re-authentication is needed.
+
+        Returns:
+            True if re-authentication interval has elapsed, False otherwise.
+            Always returns False if proactive re-auth is disabled (interval=0)
+            or no auth token is stored.
+
+        Note:
+            Uses monotonic time (time.monotonic) to avoid issues with clock
+            changes (NTP sync, manual adjustment, daylight saving, etc.).
+        """
+        # Disabled if interval is 0 or no token
+        if self._reauth_interval_seconds <= 0 or not self._auth_token:
+            return False
+
+        # No auth time recorded (shouldn't happen in normal use)
+        if self._last_auth_time is None:
+            return True
+
+        elapsed = time.monotonic() - self._last_auth_time
+        return elapsed >= self._reauth_interval_seconds
+
+    def check_and_reauthenticate(self) -> bool:
+        """Proactively re-authenticate if the configured interval has elapsed.
+
+        This should be called at the start of each collection cycle to prevent
+        session expiry during long-running operations.
+
+        Returns:
+            True if re-authentication was performed, False otherwise.
+
+        Raises:
+            SessionExpiredError: If re-authentication fails but can be retried
+            CaptchaRequiredError: If CAPTCHA is required
+            InvalidCredentialsError: If credentials are invalid
+            AccountLockedError: If account is locked
+            AuthenticationBlockedError: For other auth errors
+        """
+        if not self.needs_reauthentication():
+            return False
+
+        logger.info(
+            "Proactive re-authentication triggered (interval: %ds)",
+            self._reauth_interval_seconds,
+        )
+        self._reauthenticate()
+        SelfMetrics.get_instance().record_proactive_reauth()
+        return True
 
     def _get_cached(self, cache_key: str) -> Any | None:
         """
@@ -193,41 +249,17 @@ class RouterClient:
         if not self._auth_token:
             raise SessionExpiredError("Cannot re-authenticate: no auth token stored")
 
-        logger.info("Session expired, re-authenticating...")
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        payload = f"login_authorization={self._auth_token}"
-        url = f"{self.host}/login.cgi"
+        logger.info("Re-authenticating with router...")
 
-        # Create new session with urllib3 retries disabled
-        new_session = create_session()
-        try:
-            masked_payload = mask_sensitive_data(payload)
-            logger.debug("Request: POST %s | Data: %s", url, masked_payload)
-            response = new_session.post(
-                url, headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers}, data=payload, timeout=DEFAULT_TIMEOUT
-            )
-            masked_body = mask_sensitive_data(response.text)
-            logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
-            response.raise_for_status()
-
-            # Check for auth error in response (login.cgi returns JSON with error_status on failure)
-            try:
-                data = response.json()
-                if "error_status" in data:
-                    self._handle_auth_error(data)
-            except ValueError:
-                # Success - login.cgi returns non-JSON on successful login.
-                # Catch ValueError (parent of json.JSONDecodeError and requests.JSONDecodeError)
-                pass
-        except Exception:
-            new_session.close()
-            raise
+        # Use shared authentication logic
+        new_session = authenticate_session(self.host, self._auth_token)
 
         # Close old session before replacing with new one to prevent resource leak
         old_session = self.session
         self.session = new_session
         old_session.close()
         self.clear_cache()  # Invalidate cache to prevent stale data after re-auth
+        self._last_auth_time = time.monotonic()  # Track auth time for proactive re-auth
         logger.info("Re-authentication successful")
 
     def _handle_response(self, response: requests.Response) -> str:
@@ -262,25 +294,8 @@ class RouterClient:
         """
         Handle authentication error response from router.
 
-        Router returns JSON like:
-        {
-            "error_status": "2",
-            "captcha_on": "0",
-            "last_time_lock_warning": "0"
-        }
-
-        Error status meanings:
-            1: Token is required
-            2: Token is expired, new authentication required
-            3: Invalid credentials
-            4: NOREFERER
-            5: REFERERFAIL
-            7: Incorrect username/password 5 times
-            8: ISLOGOUT
-            9: NOLOGIN
-            10: WRONGCAPTCHA
-            11: Router locked (10 failed attempts, requires factory reset)
-            12+: Unexpected errors
+        This is a wrapper around the shared handle_auth_error function
+        that adds logging for authentication errors.
 
         Args:
             data: Parsed JSON response containing error_status
@@ -292,57 +307,19 @@ class RouterClient:
             AccountLockedError: If error_status is 11
             AuthenticationBlockedError: For other error statuses
         """
-        # Use safe_int to handle empty strings or non-numeric values from router
-        # safe_int returns 0 on ValueError/TypeError
+        # Log auth errors before delegating to shared handler
         error_status = safe_int(data.get("error_status"))
         captcha_on = safe_int(data.get("captcha_on"))
 
-        # CAPTCHA check takes priority - if CAPTCHA is required, no auth attempt should be made
-        if captcha_on == 1:
+        if captcha_on == 1 or error_status != 0:
             logger.warning(
                 "Authentication error from router: error_status=%d, captcha_on=%d",
                 error_status,
                 captcha_on,
             )
-            raise CaptchaRequiredError(
-                f"CAPTCHA is required (error_status={error_status}). "
-                "Please disable CAPTCHA in ASUS Router settings "
-                "(Administration -> System -> Enable Web Access from WAN -> Disable CAPTCHA)"
-            )
 
-        # error_status 0 means no error - return without raising
-        if error_status == 0:
-            return
-
-        # Log warning only for actual errors (after ruling out error_status=0)
-        logger.warning(
-            "Authentication error from router: error_status=%d, captcha_on=%d",
-            error_status,
-            captcha_on,
-        )
-
-        # Recoverable errors (error_status 1 or 2): session expired, can re-authenticate
-        if error_status in (1, 2):
-            raise SessionExpiredError(f"Router session expired (error_status={error_status})")
-
-        # Invalid credentials (error_status 3 or 7)
-        if error_status == 3:
-            raise InvalidCredentialsError(f"Invalid credentials provided (error_status={error_status})")
-        if error_status == 7:
-            raise InvalidCredentialsError(
-                f"Incorrect username or password entered 5 times (error_status={error_status}). "
-                "Further attempts may lock the account."
-            )
-
-        # Account locked (error_status 11)
-        if error_status == 11:
-            raise AccountLockedError(
-                f"Router account is locked due to too many failed login attempts (error_status={error_status}). "
-                "Manual factory reset required (press reset button on router)."
-            )
-
-        # All other errors (4, 5, 8, 9, 10, 12+) - blocked, non-recoverable
-        raise AuthenticationBlockedError(error_status)
+        # Use shared handler with safe_int for type conversion
+        handle_auth_error(data, safe_int_func=safe_int)
 
     def _check_for_error_response(self, response_text: str) -> None:
         """

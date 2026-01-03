@@ -160,3 +160,88 @@ class RetryExhaustedError(ExporterError):
         self.attempts = attempts
         self.last_error = last_error
         super().__init__(f"Failed after {attempts} attempts. Last error: {last_error}")
+
+
+def handle_auth_error(data: dict, *, safe_int_func: callable = int) -> None:
+    """
+    Handle authentication error response from router.
+
+    Router returns JSON like:
+    {
+        "error_status": "2",
+        "captcha_on": "0",
+        "last_time_lock_warning": "0"
+    }
+
+    Error status meanings:
+        0: No error
+        1: Token is required
+        2: Token is expired, new authentication required
+        3: Invalid credentials
+        4: NOREFERER
+        5: REFERERFAIL
+        7: Incorrect username/password 5 times
+        8: ISLOGOUT
+        9: NOLOGIN
+        10: WRONGCAPTCHA
+        11: Router locked (10 failed attempts, requires factory reset)
+        12+: Unexpected errors
+
+    Args:
+        data: Parsed JSON response containing error_status
+        safe_int_func: Function to safely convert values to int (default: int).
+                       Pass a function that returns 0 on ValueError/TypeError
+                       for handling empty strings or non-numeric values.
+
+    Raises:
+        CaptchaRequiredError: If captcha_on=1
+        SessionExpiredError: If error_status is 1 or 2 and captcha_on=0 (recoverable)
+        InvalidCredentialsError: If error_status is 3 or 7
+        AccountLockedError: If error_status is 11
+        AuthenticationBlockedError: For other error statuses
+    """
+
+    def _safe_int(value) -> int:
+        """Convert value to int, returning 0 on error."""
+        try:
+            return safe_int_func(value)
+        except (ValueError, TypeError):
+            return 0
+
+    error_status = _safe_int(data.get("error_status"))
+    captcha_on = _safe_int(data.get("captcha_on"))
+
+    # CAPTCHA check takes priority - if CAPTCHA is required, no auth attempt should be made
+    if captcha_on == 1:
+        raise CaptchaRequiredError(
+            f"CAPTCHA is required (error_status={error_status}). "
+            "Please disable CAPTCHA in ASUS Router settings "
+            "(Administration -> System -> Enable Web Access from WAN -> Disable CAPTCHA)"
+        )
+
+    # error_status 0 means no error - return without raising
+    if error_status == 0:
+        return
+
+    # Recoverable errors (error_status 1 or 2): session expired, can re-authenticate
+    if error_status in (1, 2):
+        raise SessionExpiredError(f"Router session expired (error_status={error_status})")
+
+    # Invalid credentials (error_status 3 or 7)
+    if error_status == 3:
+        raise InvalidCredentialsError(f"Invalid credentials provided (error_status={error_status})")
+    if error_status == 7:
+        raise InvalidCredentialsError(
+            f"Incorrect username or password entered 5 times (error_status={error_status}). "
+            "Further attempts may lock the account."
+        )
+
+    # Account locked (error_status 11)
+    if error_status == 11:
+        raise AccountLockedError(
+            f"Router account is locked due to too many failed login attempts (error_status={error_status}). "
+            "Manual factory reset required (press reset button on router)."
+        )
+
+    # All other errors (4, 5, 8, 9, 10, 12+) - blocked, non-recoverable
+    raise AuthenticationBlockedError(error_status)
