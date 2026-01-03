@@ -1,7 +1,7 @@
+"""HTTP client for ASUS router web API."""
+
 from __future__ import annotations
 
-import base64
-import functools
 import json
 import logging
 import re
@@ -13,7 +13,6 @@ from datetime import datetime, timedelta
 from typing import Any, TypeVar, cast
 
 import requests
-from requests.adapters import HTTPAdapter
 
 from ..core.exceptions import (
     AccountLockedError,
@@ -34,6 +33,8 @@ from ..utils.parsing import (
     to_bool,
     trim_to_none,
 )
+from .decorators import track_api
+from .factory import ASUS_CLIENT_DEFAULT_HEADERS, DEFAULT_TIMEOUT, create_session
 from .models import (
     BaseClientInfo,
     ClientAmeshInfo,
@@ -89,43 +90,8 @@ from .models import (
     WifiWpsWep,
 )
 
-# Type variable for generic functions
+# Type variable for generic return type in _request_with_reauth
 _T = TypeVar("_T")
-
-# Type variable for the decorator return type
-_F = TypeVar("_F", bound=Callable[..., Any])
-
-
-def _track_api(method_name: str) -> Callable[[_F], _F]:
-    """
-    Decorator to track API method performance metrics.
-
-    Args:
-        method_name: Name to use in metrics (e.g., 'get_cpu_usage')
-
-    Returns:
-        Decorated function that records request count, duration, and errors
-
-    Note:
-        Caches the SelfMetrics instance on first call to avoid lock acquisition
-        on every API invocation.
-    """
-
-    def decorator(func: _F) -> _F:
-        # Cache metrics instance to avoid get_instance() lock on every call
-        cached_metrics: list[SelfMetrics | None] = [None]
-
-        @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            if cached_metrics[0] is None:
-                cached_metrics[0] = SelfMetrics.get_instance()
-            with cached_metrics[0].track_api_call(method_name):
-                return func(*args, **kwargs)
-
-        return cast(_F, wrapper)
-
-    return decorator
-
 
 # Configure logger with SensitiveFormatter to ensure credentials are masked
 # even when this module is used standalone (without asus_router_prometheus.py).
@@ -140,34 +106,6 @@ with _logger_lock:
         _handler.setFormatter(SensitiveFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
         logger.addHandler(_handler)
         logger.propagate = False  # Prevent duplicate logs if parent also has handlers
-
-ASUS_CLIENT_DEFAULT_HEADERS = {"User-Agent": "asusrouter-Android-DUTUtil-1.0.0.245"}
-
-DEFAULT_TIMEOUT = 10
-
-
-def _create_session() -> requests.Session:
-    """
-    Create a requests Session with urllib3 retries disabled.
-
-    By default, urllib3 retries failed connections multiple times before
-    raising an exception. This causes excessive log spam ("Max retries exceeded")
-    and delays when the router is unavailable. We disable these retries so that:
-
-    1. Connection failures are reported immediately
-    2. Application-level retry logic (CompositeErrorHandler with RetryHandler
-       and CircuitBreaker) handles retries appropriately
-    3. Log output is clean and actionable
-
-    Returns:
-        Configured requests.Session with no automatic retries
-    """
-    session = requests.Session()
-    # Mount adapters with max_retries=0 to disable urllib3's retry mechanism
-    adapter = HTTPAdapter(max_retries=0)
-    session.mount("http://", adapter)
-    session.mount("https://", adapter)
-    return session
 
 
 @dataclass
@@ -261,7 +199,7 @@ class RouterClient:
         url = f"{self.host}/login.cgi"
 
         # Create new session with urllib3 retries disabled
-        new_session = _create_session()
+        new_session = create_session()
         try:
             masked_payload = mask_sensitive_data(payload)
             logger.debug("Request: POST %s | Data: %s", url, masked_payload)
@@ -317,10 +255,11 @@ class RouterClient:
             data = response.json()
             if "error_status" in data:
                 self._handle_auth_error(data)
-        except json.decoder.JSONDecodeError:
-            # Intentionally suppressed: Many router endpoints return non-JSON responses
-            # (e.g., ajax_coretmp.asp returns JavaScript). We only check for auth errors
-            # in JSON responses; non-JSON responses are processed by specific callers.
+        except ValueError:
+            # Catch ValueError (parent of json.JSONDecodeError and requests.JSONDecodeError).
+            # Many router endpoints return non-JSON responses (e.g., ajax_coretmp.asp returns
+            # JavaScript). We only check for auth errors in JSON responses; non-JSON responses
+            # are processed by specific callers.
             pass
         return response.text
 
@@ -479,7 +418,11 @@ class RouterClient:
                 return func(*args, **kwargs)
             raise
 
-    @_track_api("get_core_temp")
+    # -------------------------------------------------------------------------
+    # System API methods
+    # -------------------------------------------------------------------------
+
+    @track_api("get_core_temp")
     def get_core_temp(self) -> TemperatureInfo:
         return self._request_with_reauth(self._get_core_temp_impl)
 
@@ -494,7 +437,7 @@ class RouterClient:
 
         return TemperatureInfo(cpu=float(parsed["curr_cpuTemp"]))
 
-    @_track_api("get_uptime")
+    @track_api("get_uptime")
     def get_uptime(self) -> UptimeInfo:
         """Get router uptime information (cached per collection cycle)."""
         cache_key = "uptime"
@@ -537,7 +480,7 @@ class RouterClient:
                     return RebootScheduleInfo(next_at=candidate, until_ms=until_ms, schedule=reboot_schedule)
         return None
 
-    @_track_api("get_cpu_usage")
+    @track_api("get_cpu_usage")
     def get_cpu_usage(self) -> list[CpuInfo]:
         response = self.__get_hook("cpu_usage")
         # Router returns malformed JSON wrapper: {"cpu_usage":"cpu1_total":"..."}
@@ -555,7 +498,7 @@ class RouterClient:
 
         return cpu_infos
 
-    @_track_api("get_memory_usage")
+    @track_api("get_memory_usage")
     def get_memory_usage(self) -> MemoryInfo:
         response = self.__get_hook("memory_usage")
         # Router returns malformed JSON wrapper: {"memory_usage":"mem_total":"..."}
@@ -595,77 +538,11 @@ class RouterClient:
         # Add braces to make it valid JSON
         return cast(dict[str, Any], json.loads("{" + embedded_content + "}"))
 
-    def get_wl_nband_info(self) -> dict[WifiBand, int]:
-        response = self.__get_hook("wl_nband_info")
-        wl_nband_info = json.loads(response)["wl_nband_info"]
-        wl_nband_array = [int(v) for v in wl_nband_info]
-        counts = Counter(wl_nband_array)
+    # -------------------------------------------------------------------------
+    # Router info API methods
+    # -------------------------------------------------------------------------
 
-        return {band: counts.get(band.value, 0) for band in WifiBand}
-
-    def get_plugged_usb_devices(self) -> list[UsbDeviceType]:
-        response = self.__get_hook("show_usb_path")
-        all_usb_statuses = json.loads(response)["show_usb_path"]
-        usb_devices = []
-        for usb_status in all_usb_statuses:
-            usb_devices.append(UsbDeviceType(usb_status))
-        return usb_devices
-
-    def get_wireless_band_info(self, wl_unit: WifiUnit, repeater: bool) -> WifiBandInfo:
-        unit = f"{wl_unit.value}{'.1' if repeater else ''}"
-        nvrams = self.__get_nvram(
-            f"wl{unit}_mbo_enable",
-            f"wl{unit}_ssid",
-            f"wl{unit}_nmode_x",
-            f"wl{unit}_auth_mode_x",
-            f"wl{unit}_crypto",
-            f"wl{unit}_mfp",
-            f"wl{unit}_wep_x",
-            f"wl{unit}_closed",
-            f"wl{unit}_hwaddr",
-        )
-        return WifiBandInfo(
-            ssid=nvrams[f"wl{unit}_ssid"],
-            mac=nvrams[f"wl{unit}_hwaddr"],
-            mode=WifiMode(int(nvrams[f"wl{unit}_nmode_x"])),
-            auth_mode=WifiAuthMode(nvrams[f"wl{unit}_auth_mode_x"]),
-            crypto=WifiCrypto(nvrams[f"wl{unit}_crypto"]),
-            mfp=WifiMfp(int(nvrams[f"wl{unit}_mfp"])),
-            wep=WifiWpsWep(int(nvrams[f"wl{unit}_wep_x"])),
-            hidde_ssid=to_bool(nvrams[f"wl{unit}_closed"]),
-            mbo_enabled=to_bool(nvrams.get(f"wl{unit}_mbo_enable", "0")),
-        )
-
-    @_track_api("get_wireless_info")
-    def get_wireless_info(self) -> WifiInfo:
-        wl_nband_info = self.get_wl_nband_info()
-        nvrams = self.__get_nvram("wps_enable", "wlc_band", "smart_connect_x")
-        wifi_info = WifiInfo(
-            bands_count=wl_nband_info,
-            wps_enabled=to_bool(nvrams.get("wps_enable", "0")),
-            smart_connect_enabled=to_bool(nvrams.get("smart_connect_enable", "0")),
-        )
-
-        caps = self.get_supported_features()
-        sw_mode = self.get_sw_mode()
-        wlc_band = nvrams["wlc_band"]
-        concurrep_support = caps.is_supported("concurrep")
-        if caps.is_supported("2.4G"):
-            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_2G))
-            wifi_info.band_2G_info = self.get_wireless_band_info(WifiUnit.WL_2G, repeater)
-        if caps.is_supported("5G"):
-            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_5G))
-            wifi_info.band_5G_info = self.get_wireless_band_info(WifiUnit.WL_5G, repeater)
-        if caps.is_supported("5G-2"):
-            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_5G_2))
-            wifi_info.band_5G_2_info = self.get_wireless_band_info(WifiUnit.WL_5G_2, repeater)
-        if caps.is_supported("wifi6e"):
-            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_6G))
-            wifi_info.band_6G_info = self.get_wireless_band_info(WifiUnit.WL_6G, repeater)
-
-        return wifi_info
-
-    @_track_api("get_info")
+    @track_api("get_info")
     def get_info(self) -> RouterInfo:
         nvrams = self.__get_nvram(
             "productid",
@@ -717,41 +594,7 @@ class RouterClient:
             ports_info=ports_info,
         )
 
-    @_track_api("get_netdev")
-    def get_netdev(self) -> NetdevInfo:
-        response = self.__get_hook("netdev", "appobj")
-        data = json.loads(response)
-        netdev = data["netdev"]
-
-        bridge = ThroughputInfo(
-            total_upload_bytes=parse_hex(netdev["BRIDGE_tx"]), total_download_bytes=parse_hex(netdev["BRIDGE_rx"])
-        )
-
-        wired = ThroughputInfo(
-            total_upload_bytes=parse_hex(netdev["WIRED_tx"]), total_download_bytes=parse_hex(netdev["WIRED_rx"])
-        )
-
-        internet_ids = ids_for("INTERNET", netdev.keys())
-        internet: dict[str, ThroughputInfo] = {
-            iid: ThroughputInfo(
-                total_upload_bytes=parse_hex(netdev.get(f"INTERNET{iid}_tx")),
-                total_download_bytes=parse_hex(netdev.get(f"INTERNET{iid}_rx")),
-            )
-            for iid in internet_ids
-        }
-
-        wireless_ids = ids_for("WIRELESS", netdev.keys())
-        wireless: dict[str, ThroughputInfo] = {
-            wid: ThroughputInfo(
-                total_upload_bytes=parse_hex(netdev.get(f"WIRELESS{wid}_tx")),
-                total_download_bytes=parse_hex(netdev.get(f"WIRELESS{wid}_rx")),
-            )
-            for wid in wireless_ids
-        }
-
-        return NetdevInfo(bridge=bridge, internet=internet, wired=wired, wireless=wireless)
-
-    @_track_api("get_supported_features")
+    @track_api("get_supported_features")
     def get_supported_features(self) -> RouterFeatureCapabilities:
         """Get router feature capabilities (cached per collection cycle)."""
         cache_key = "supported_features"
@@ -765,7 +608,7 @@ class RouterClient:
         self._cache[cache_key] = cap
         return cap
 
-    @_track_api("get_sw_mode")
+    @track_api("get_sw_mode")
     def get_sw_mode(self) -> SwMode:
         """Get router software mode (cached per collection cycle)."""
         cache_key = "sw_mode"
@@ -803,7 +646,49 @@ class RouterClient:
         self._cache[cache_key] = mode
         return mode
 
-    @_track_api("get_dual_wan_info")
+    # -------------------------------------------------------------------------
+    # Network API methods
+    # -------------------------------------------------------------------------
+
+    @track_api("get_netdev")
+    def get_netdev(self) -> NetdevInfo:
+        response = self.__get_hook("netdev", "appobj")
+        data = json.loads(response)
+        netdev = data["netdev"]
+
+        bridge = ThroughputInfo(
+            total_upload_bytes=parse_hex(netdev["BRIDGE_tx"]), total_download_bytes=parse_hex(netdev["BRIDGE_rx"])
+        )
+
+        wired = ThroughputInfo(
+            total_upload_bytes=parse_hex(netdev["WIRED_tx"]), total_download_bytes=parse_hex(netdev["WIRED_rx"])
+        )
+
+        internet_ids = ids_for("INTERNET", netdev.keys())
+        internet: dict[str, ThroughputInfo] = {
+            iid: ThroughputInfo(
+                total_upload_bytes=parse_hex(netdev.get(f"INTERNET{iid}_tx")),
+                total_download_bytes=parse_hex(netdev.get(f"INTERNET{iid}_rx")),
+            )
+            for iid in internet_ids
+        }
+
+        wireless_ids = ids_for("WIRELESS", netdev.keys())
+        wireless: dict[str, ThroughputInfo] = {
+            wid: ThroughputInfo(
+                total_upload_bytes=parse_hex(netdev.get(f"WIRELESS{wid}_tx")),
+                total_download_bytes=parse_hex(netdev.get(f"WIRELESS{wid}_rx")),
+            )
+            for wid in wireless_ids
+        }
+
+        return NetdevInfo(bridge=bridge, internet=internet, wired=wired, wireless=wireless)
+
+    # -------------------------------------------------------------------------
+    # WAN API methods
+    # -------------------------------------------------------------------------
+
+    @track_api("get_dual_wan_info")
     def get_dual_wan_info(self) -> DualWanInfo:
         """Get dual WAN configuration (cached per collection cycle)."""
         cache_key = "dual_wan_info"
@@ -881,7 +766,7 @@ class RouterClient:
                     wan_info.proto = WanProtoType(dsl_info.proto.value)
         return wan_info
 
-    @_track_api("get_network_wan_info")
+    @track_api("get_network_wan_info")
     def get_network_wan_info(self) -> NetworkWanInfo:
         sw_mode = self.get_sw_mode()
         nvrams = self.__get_nvram("link_internet")
@@ -904,7 +789,85 @@ class RouterClient:
             )
         return network_wan_info
 
-    @_track_api("get_port_status_infos")
+    # -------------------------------------------------------------------------
+    # Wireless API methods
+    # -------------------------------------------------------------------------
+
+    def get_wl_nband_info(self) -> dict[WifiBand, int]:
+        response = self.__get_hook("wl_nband_info")
+        wl_nband_info = json.loads(response)["wl_nband_info"]
+        wl_nband_array = [int(v) for v in wl_nband_info]
+        counts = Counter(wl_nband_array)
+
+        return {band: counts.get(band.value, 0) for band in WifiBand}
+
+    def get_wireless_band_info(self, wl_unit: WifiUnit, repeater: bool) -> WifiBandInfo:
+        unit = f"{wl_unit.value}{'.1' if repeater else ''}"
+        nvrams = self.__get_nvram(
+            f"wl{unit}_mbo_enable",
+            f"wl{unit}_ssid",
+            f"wl{unit}_nmode_x",
+            f"wl{unit}_auth_mode_x",
+            f"wl{unit}_crypto",
+            f"wl{unit}_mfp",
+            f"wl{unit}_wep_x",
+            f"wl{unit}_closed",
+            f"wl{unit}_hwaddr",
+        )
+        return WifiBandInfo(
+            ssid=nvrams[f"wl{unit}_ssid"],
+            mac=nvrams[f"wl{unit}_hwaddr"],
+            mode=WifiMode(int(nvrams[f"wl{unit}_nmode_x"])),
+            auth_mode=WifiAuthMode(nvrams[f"wl{unit}_auth_mode_x"]),
+            crypto=WifiCrypto(nvrams[f"wl{unit}_crypto"]),
+            mfp=WifiMfp(int(nvrams[f"wl{unit}_mfp"])),
+            wep=WifiWpsWep(int(nvrams[f"wl{unit}_wep_x"])),
+            hidden_ssid=to_bool(nvrams[f"wl{unit}_closed"]),
+            mbo_enabled=to_bool(nvrams.get(f"wl{unit}_mbo_enable", "0")),
+        )
+
+    @track_api("get_wireless_info")
+    def get_wireless_info(self) -> WifiInfo:
+        wl_nband_info = self.get_wl_nband_info()
+        nvrams = self.__get_nvram("wps_enable", "wlc_band", "smart_connect_x")
+        wifi_info = WifiInfo(
+            bands_count=wl_nband_info,
+            wps_enabled=to_bool(nvrams.get("wps_enable", "0")),
+            smart_connect_enabled=to_bool(nvrams.get("smart_connect_x", "0")),
+        )
+
+        caps = self.get_supported_features()
+        sw_mode = self.get_sw_mode()
+        wlc_band = nvrams["wlc_band"]
+        concurrep_support = caps.is_supported("concurrep")
+        if caps.is_supported("2.4G"):
+            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_2G))
+            wifi_info.band_2G_info = self.get_wireless_band_info(WifiUnit.WL_2G, repeater)
+        if caps.is_supported("5G"):
+            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_5G))
+            wifi_info.band_5G_info = self.get_wireless_band_info(WifiUnit.WL_5G, repeater)
+        if caps.is_supported("5G-2"):
+            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_5G_2))
+            wifi_info.band_5G_2_info = self.get_wireless_band_info(WifiUnit.WL_5G_2, repeater)
+        if caps.is_supported("wifi6e"):
+            repeater = sw_mode == SwMode.RE and (concurrep_support or wlc_band == str(WifiUnit.WL_6G))
+            wifi_info.band_6G_info = self.get_wireless_band_info(WifiUnit.WL_6G, repeater)
+
+        return wifi_info
+
+    # -------------------------------------------------------------------------
+    # Ports API methods
+    # -------------------------------------------------------------------------
+
+    def get_plugged_usb_devices(self) -> list[UsbDeviceType]:
+        response = self.__get_hook("show_usb_path")
+        all_usb_statuses = json.loads(response)["show_usb_path"]
+        usb_devices = []
+        for usb_status in all_usb_statuses:
+            usb_devices.append(UsbDeviceType(usb_status))
+        return usb_devices
+
+    @track_api("get_port_status_infos")
     def get_port_status_infos(self, mac: str) -> list[PortInfo]:
         return self._request_with_reauth(self._get_port_status_infos_impl, mac)
 
@@ -927,6 +890,10 @@ class RouterClient:
             )
             port_infos.append(port_info)
         return port_infos
+
+    # -------------------------------------------------------------------------
+    # Clients API methods
+    # -------------------------------------------------------------------------
 
     def _map_client_info(self, caps: RouterFeatureCapabilities, client_data, client_db_data) -> ClientInfo:
         op_mode = int(client_data["opMode"])
@@ -1020,7 +987,7 @@ class RouterClient:
 
         return client_info
 
-    @_track_api("get_clients")
+    @track_api("get_clients")
     def get_clients(self) -> list[BaseClientInfo]:
         caps = self.get_supported_features()
         get_clientlist = json.loads(self.__get_hook("get_clientlist")).get("get_clientlist")
@@ -1041,62 +1008,3 @@ class RouterClient:
             clients.append(client_info)
 
         return clients
-
-
-class RouterClientFactory:
-    def __init__(self, host):
-        # Default to HTTP for local network router access. ASUS routers typically
-        # don't have HTTPS certificates by default. Users can explicitly specify
-        # https:// if their router is configured with SSL/TLS.
-        if not host.startswith(("http://", "https://")):
-            host = f"http://{host}"
-
-        self.host = host.rstrip("/")
-
-    def auth(self, auth) -> RouterClient:
-        """
-        Authenticate with the router and create a client.
-
-        Args:
-            auth: Authentication string in format "username:password"
-
-        Returns:
-            Authenticated RouterClient instance
-
-        Raises:
-            CaptchaRequiredError: If CAPTCHA is required
-            InvalidCredentialsError: If credentials are invalid
-            AccountLockedError: If account is locked
-            AuthenticationBlockedError: For other auth errors
-        """
-        token = base64.b64encode(auth.encode("utf-8")).decode("utf-8")
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        payload = f"login_authorization={token}"
-        # Create session with urllib3 retries disabled - app-level retry handles failures
-        session = _create_session()
-        try:
-            url = f"{self.host}/login.cgi"
-            # Mask request payload for defense-in-depth (in case handler without SensitiveFormatter is added)
-            masked_payload = mask_sensitive_data(payload)
-            logger.debug("Request: POST %s | Data: %s", url, masked_payload)
-            response = session.post(
-                url, headers={**ASUS_CLIENT_DEFAULT_HEADERS, **headers}, data=payload, timeout=DEFAULT_TIMEOUT
-            )
-            # Mask sensitive data BEFORE truncating to prevent partial field leakage
-            masked_body = mask_sensitive_data(response.text)
-            logger.debug("Response: %s %s | Body: %s", response.status_code, response.url, masked_body[:2000])
-            response.raise_for_status()
-
-            # Check for auth error in response (login.cgi returns JSON with error_status on failure)
-            try:
-                data = response.json()
-                if "error_status" in data:
-                    RouterClient._handle_auth_error(data)
-            except json.decoder.JSONDecodeError:
-                # Success - login.cgi returns non-JSON on successful login
-                pass
-
-            return RouterClient(self.host, session, _auth_token=token)
-        except Exception:
-            session.close()
-            raise

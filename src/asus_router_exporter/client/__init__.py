@@ -2,7 +2,8 @@
 Router client for the ASUS Router Exporter.
 """
 
-from .router_client import RouterClient, RouterClientFactory
+from .factory import RouterClientFactory
+from .router_client import RouterClient
 
 __all__ = [
     "RouterClient",

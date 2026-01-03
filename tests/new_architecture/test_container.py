@@ -208,7 +208,7 @@ class TestContainerRouterClient:
         assert container._router_client is mock_client
         assert container.router_client is mock_client
 
-    @patch("asus_router_exporter.client.router_client.RouterClientFactory")
+    @patch("asus_router_exporter.client.RouterClientFactory")
     def test_router_client_lazy_creation(self, mock_factory_cls):
         mock_client = MagicMock(spec=RouterClientProtocol)
         mock_factory = MagicMock()
@@ -228,7 +228,7 @@ class TestContainerRouterClient:
         mock_factory_cls.assert_called_once_with("10.0.0.1")
         mock_factory.auth.assert_called_once_with("admin:pass")
 
-    @patch("asus_router_exporter.client.router_client.RouterClientFactory")
+    @patch("asus_router_exporter.client.RouterClientFactory")
     def test_router_client_cached(self, mock_factory_cls):
         mock_client = MagicMock(spec=RouterClientProtocol)
         mock_factory = MagicMock()

@@ -50,7 +50,11 @@ src/asus_router_exporter/
 ├── core/
 │   ├── config.py             # YAML + env var configuration management
 │   ├── container.py          # Dependency injection container
-│   ├── error_handling.py     # Retry handler + circuit breaker
+│   ├── error_handling/       # Error handling package
+│   │   ├── __init__.py       # Re-exports for backward compatibility
+│   │   ├── retry.py          # RetryConfig + RetryHandler
+│   │   ├── circuit_breaker.py # CircuitBreaker pattern
+│   │   └── composite.py      # CompositeErrorHandler
 │   ├── exceptions.py         # Custom exception classes
 │   └── protocols.py          # Protocol (interface) definitions
 ├── collectors/
@@ -67,8 +71,19 @@ src/asus_router_exporter/
 ├── server/
 │   └── exporter.py           # HTTP server and collection loop
 ├── client/
+│   ├── __init__.py           # Package exports (RouterClient, RouterClientFactory)
 │   ├── router_client.py      # Router HTTP client with auto re-auth
-│   └── models.py             # Data models for router responses
+│   ├── factory.py            # RouterClientFactory for authentication
+│   ├── decorators.py         # @track_api decorator for metrics
+│   └── models/               # Data models package
+│       ├── __init__.py       # Re-exports all 50+ models
+│       ├── system.py         # CPU, memory, uptime, temperature models
+│       ├── network.py        # Throughput, netdev, traffic models
+│       ├── wireless.py       # WiFi band, mode, auth models
+│       ├── wan.py            # WAN, dual WAN, DSL, LAN models
+│       ├── ports.py          # Ethernet/USB port models
+│       ├── clients.py        # Connected client models
+│       └── router.py         # RouterInfo, capabilities, SwMode
 ├── metrics/
 │   ├── __init__.py           # Module exports
 │   └── self_metrics.py       # Exporter self-observability metrics
@@ -89,10 +104,11 @@ src/asus_router_exporter/
    - Enables easy testing with mock implementations
    - Lazy instantiation of expensive resources
 
-3. **Error Handling** (`core/error_handling.py`)
-   - `RetryHandler`: Exponential backoff retry (skips non-recoverable auth errors)
-   - `CircuitBreaker`: Fail-fast pattern for fault tolerance
-   - `CompositeErrorHandler`: Combines both strategies
+3. **Error Handling** (`core/error_handling/`)
+   - `retry.py`: `RetryHandler` with exponential backoff (skips non-recoverable auth errors)
+   - `circuit_breaker.py`: `CircuitBreaker` fail-fast pattern for fault tolerance
+   - `composite.py`: `CompositeErrorHandler` combines both strategies
+   - Package re-exports all classes via `__init__.py` for backward compatibility
 
 4. **Modular Collectors** (`collectors/`)
    - `BaseCollector`: Abstract class with common functionality
@@ -100,13 +116,14 @@ src/asus_router_exporter/
    - Enable/disable via configuration
    - Stale metric cleanup when interfaces/clients disappear
 
-5. **Router Client** (`client/router_client.py`)
-   - Auto re-authentication on session expiry (error_status 1-2)
-   - Session management with `close()` method
+5. **Router Client** (`client/`)
+   - `router_client.py`: HTTP client with auto re-authentication on session expiry
+   - `factory.py`: `RouterClientFactory` for creating authenticated client instances
+   - `decorators.py`: `@track_api` decorator for API call performance instrumentation
+   - `models/`: Domain-organized data models (system, network, wan, wireless, ports, clients, router)
    - urllib3 retries disabled to allow application-level retry control
    - Smart authentication error handling to prevent account lockout
    - Cache hit/miss tracking for per-cycle caching
-   - API call performance instrumentation via `@_track_api` decorator
 
 6. **Self-Metrics** (`metrics/self_metrics.py`)
    - Thread-safe singleton `SelfMetrics` for exporter observability

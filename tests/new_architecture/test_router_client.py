@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from asus_router_exporter.client import RouterClient, RouterClientFactory
 from asus_router_exporter.client.models import (
     ClientAmeshRole,
     DslTransMode,
@@ -22,7 +23,6 @@ from asus_router_exporter.client.models import (
     WanState,
     WanSubState,
 )
-from asus_router_exporter.client.router_client import RouterClient, RouterClientFactory
 from asus_router_exporter.core.exceptions import (
     AccountLockedError,
     AuthenticationBlockedError,
