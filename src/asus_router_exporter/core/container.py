@@ -216,6 +216,11 @@ class Container:
             True if at least one enabled collector succeeded, False if all failed.
             Also returns True if there are no enabled collectors (nothing failed).
         """
+        # Clear router client cache at the start of each collection cycle
+        # to ensure fresh data while avoiding duplicate API calls within the cycle
+        if self._router_client is not None:
+            self._router_client.clear_cache()
+
         enabled_collectors = [c for c in self._collectors if c.enabled]
         if not enabled_collectors:
             return True  # Nothing to collect, nothing failed

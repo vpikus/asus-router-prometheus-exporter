@@ -709,6 +709,176 @@ class TestRouterClientRebootSchedule:
         assert result.mm == 30
 
 
+class TestRouterClientCache:
+    """Tests for RouterClient caching behavior."""
+
+    def test_clear_cache(self):
+        """Test that clear_cache empties the cache dict."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        # Manually set cache values
+        client._cache["test_key"] = "test_value"
+        assert "test_key" in client._cache
+
+        client.clear_cache()
+
+        assert len(client._cache) == 0
+
+    def test_get_sw_mode_caches_result(self):
+        """Test that get_sw_mode caches its result."""
+        session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"sw_mode": "1", "wlc_psta": "0", "wlc_express": "0"}'
+        session.get.return_value = mock_response
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        # First call should hit the API
+        result1 = client.get_sw_mode()
+        assert result1 == SwMode.RT
+        assert session.get.call_count == 1
+
+        # Second call should use cache
+        result2 = client.get_sw_mode()
+        assert result2 == SwMode.RT
+        assert session.get.call_count == 1  # No additional API call
+
+    def test_get_sw_mode_after_clear_cache(self):
+        """Test that get_sw_mode calls API again after cache is cleared."""
+        session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"sw_mode": "1", "wlc_psta": "0", "wlc_express": "0"}'
+        session.get.return_value = mock_response
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        # First call
+        client.get_sw_mode()
+        assert session.get.call_count == 1
+
+        # Clear cache
+        client.clear_cache()
+
+        # Second call should hit API again
+        client.get_sw_mode()
+        assert session.get.call_count == 2
+
+    def test_get_supported_features_caches_result(self):
+        """Test that get_supported_features caches its result."""
+        session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"get_ui_support": {"dualwan": "1", "2.4G": "1", "5G": "1"}}'
+        session.get.return_value = mock_response
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        # First call should hit the API
+        caps1 = client.get_supported_features()
+        assert caps1.is_supported("dualwan") is True
+        assert session.get.call_count == 1
+
+        # Second call should use cache
+        caps2 = client.get_supported_features()
+        assert caps2.is_supported("dualwan") is True
+        assert session.get.call_count == 1  # No additional API call
+
+    def test_get_uptime_caches_result(self):
+        """Test that get_uptime caches its result."""
+        session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"uptime": "Mon, 01 Jan 2024 10:00:00 +0000(12345 secs since boot)"}'
+        session.get.return_value = mock_response
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        # First call should hit the API
+        uptime1 = client.get_uptime()
+        assert uptime1.boottime == 12345
+        assert session.get.call_count == 1
+
+        # Second call should use cache
+        uptime2 = client.get_uptime()
+        assert uptime2.boottime == 12345
+        assert session.get.call_count == 1  # No additional API call
+
+    def test_get_dual_wan_info_caches_result(self):
+        """Test that get_dual_wan_info caches its result."""
+        session = MagicMock()
+
+        # Mock nvram response
+        nvram_response = MagicMock()
+        nvram_response.status_code = 200
+        nvram_response.text = json.dumps(
+            {"wans_dualwan": "wan lan", "wan0_enable": "1", "wan1_enable": "1", "wans_mode": "fo"}
+        )
+
+        # Mock get_wan_unit response
+        wan_unit_response = MagicMock()
+        wan_unit_response.status_code = 200
+        wan_unit_response.text = '{"get_wan_unit": 0}'
+
+        # Mock get_ui_support response
+        ui_support_response = MagicMock()
+        ui_support_response.status_code = 200
+        ui_support_response.text = '{"get_ui_support": {"dualwan": "1"}}'
+
+        session.get.side_effect = [nvram_response, wan_unit_response, ui_support_response]
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        # First call should hit the API
+        info1 = client.get_dual_wan_info()
+        assert info1.enabled is True
+        initial_call_count = session.get.call_count
+
+        # Second call should use cache (no additional API calls)
+        info2 = client.get_dual_wan_info()
+        assert info2.enabled is True
+        assert session.get.call_count == initial_call_count
+
+    def test_multiple_cached_methods_share_cache(self):
+        """Test that different cached methods use the same cache dict."""
+        session = MagicMock()
+
+        # Mock response for sw_mode
+        sw_mode_response = MagicMock()
+        sw_mode_response.status_code = 200
+        sw_mode_response.text = '{"sw_mode": "1", "wlc_psta": "0", "wlc_express": "0"}'
+
+        # Mock response for uptime
+        uptime_response = MagicMock()
+        uptime_response.status_code = 200
+        uptime_response.text = '{"uptime": "Mon, 01 Jan 2024 10:00:00 +0000(12345 secs since boot)"}'
+
+        session.get.side_effect = [sw_mode_response, uptime_response]
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        # Call both methods
+        client.get_sw_mode()
+        client.get_uptime()
+
+        # Both should be cached
+        assert "sw_mode" in client._cache
+        assert "uptime" in client._cache
+
+        # Clear cache should clear both
+        client.clear_cache()
+        assert len(client._cache) == 0
+
+    def test_cache_initialized_empty(self):
+        """Test that a new client has an empty cache."""
+        session = MagicMock()
+        client = RouterClient(host="http://192.168.1.1", session=session)
+
+        assert client._cache == {}
+
+
 class TestRouterClientIntegration:
     """Integration tests for RouterClient."""
 
