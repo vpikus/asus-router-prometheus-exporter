@@ -513,6 +513,116 @@ class TestContainerCollectorQueries:
         assert container.get_disabled_collectors() == []
 
 
+class TestContainerCacheClearing:
+    """Tests for router client cache clearing behavior."""
+
+    def test_collect_metrics_clears_cache_at_start(self):
+        """Test that cache is cleared at the start of each collection cycle."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        mock_client.clear_cache = MagicMock()
+        container.set_router_client(mock_client)
+
+        container.register_collector(MockCollector)
+        container.initialize()
+
+        router_info = MagicMock()
+        container.collect_metrics(router_info)
+
+        # Cache is cleared once at the start of each collection cycle
+        assert mock_client.clear_cache.call_count == 1
+
+    def test_collect_metrics_clears_cache_before_collection(self):
+        """Test that cache is cleared before any collector runs."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        mock_client.clear_cache = MagicMock()
+        container.set_router_client(mock_client)
+
+        container.register_collector(MockCollectorFailsOnCollect)
+        container.initialize()
+
+        router_info = MagicMock()
+        container.collect_metrics(router_info)
+
+        # Cache is cleared at start, regardless of collector success/failure
+        assert mock_client.clear_cache.call_count == 1
+
+    def test_collect_metrics_clears_cache_even_when_no_enabled_collectors(self):
+        """Test that cache is cleared even when there are no enabled collectors."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        mock_client.clear_cache = MagicMock()
+        container.set_router_client(mock_client)
+
+        container.register_collector(MockCollectorDisabled)
+        container.initialize()
+
+        router_info = MagicMock()
+        result = container.collect_metrics(router_info)
+
+        # Should return True (nothing failed) and still clear cache
+        assert result is True
+        mock_client.clear_cache.assert_called_once()
+
+    def test_collect_metrics_calls_clear_cache_via_protocol(self):
+        """Test that collect_metrics calls clear_cache via the RouterClientProtocol."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        # Client that implements RouterClientProtocol
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        container.set_router_client(mock_client)
+
+        container.register_collector(MockCollector)
+        container.initialize()
+
+        router_info = MagicMock()
+        result = container.collect_metrics(router_info)
+
+        assert result is True
+        # clear_cache is called once at start of cycle
+        assert mock_client.clear_cache.call_count == 1
+
+    def test_cache_cleared_each_cycle(self):
+        """Test that cache is cleared at the start of each collection cycle."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock(spec=RouterClientProtocol)
+        clear_call_count = []
+
+        def track_clear():
+            clear_call_count.append(1)
+
+        mock_client.clear_cache = track_clear
+        container.set_router_client(mock_client)
+
+        container.register_collector(MockCollector)
+        container.initialize()
+
+        router_info = MagicMock()
+
+        # Run multiple collection cycles
+        container.collect_metrics(router_info)
+        container.collect_metrics(router_info)
+        container.collect_metrics(router_info)
+
+        # Cache should be cleared once per cycle
+        assert len(clear_call_count) == 3
+
+
 class TestContainerIntegration:
     """Integration tests for Container."""
 

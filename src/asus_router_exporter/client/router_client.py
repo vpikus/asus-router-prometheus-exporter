@@ -6,8 +6,9 @@ import logging
 import re
 import threading
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -145,16 +146,34 @@ class RouterClient:
 
         If you need to use this client from multiple threads, wrap calls in a Lock
         or create separate client instances per thread.
+
+    Caching:
+        To optimize API calls, frequently-called methods that return stable data
+        within a collection cycle are cached. Call `clear_cache()` at the start
+        of each collection cycle to ensure fresh data.
+
+        Cached methods: get_supported_features(), get_sw_mode(), get_dual_wan_info(),
+        get_uptime()
     """
 
     host: str
     session: requests.Session
     _auth_token: str = ""
+    _cache: dict[str, Any] = field(default_factory=dict)
 
     def close(self) -> None:
         """Close the underlying session and release resources."""
+        self.clear_cache()
         if self.session is not None:
             self.session.close()
+
+    def clear_cache(self) -> None:
+        """Clear the per-cycle cache.
+
+        Should be called at the start of each collection cycle to ensure
+        fresh data is fetched from the router.
+        """
+        self._cache.clear()
 
     def __enter__(self) -> RouterClient:
         """Context manager entry."""
@@ -211,6 +230,7 @@ class RouterClient:
         old_session = self.session
         self.session = new_session
         old_session.close()
+        self.clear_cache()  # Invalidate cache to prevent stale data after re-auth
         logger.info("Re-authentication successful")
 
     def _handle_response(self, response: requests.Response) -> str:
@@ -415,12 +435,20 @@ class RouterClient:
         return TemperatureInfo(cpu=float(parsed["curr_cpuTemp"]))
 
     def get_uptime(self) -> UptimeInfo:
+        """Get router uptime information (cached per collection cycle)."""
+        cache_key = "uptime"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         response = self.__get_hook("uptime")
         data = json.loads(response)
         uptime_raw = data["uptime"].split("(")
         systime = datetime.strptime(uptime_raw[0].strip(), "%a, %d %b %Y %H:%M:%S %z")
         boottime = int(uptime_raw[1].split(" ")[0])
-        return UptimeInfo(systime=systime, boottime=boottime)
+        result = UptimeInfo(systime=systime, boottime=boottime)
+        self._cache[cache_key] = result
+        return result
 
     @staticmethod
     def _parse_schedule(schedule: str) -> RebootScheduleConf:
@@ -658,12 +686,25 @@ class RouterClient:
         return NetdevInfo(bridge=bridge, internet=internet, wired=wired, wireless=wireless)
 
     def get_supported_features(self) -> RouterFeatureCapabilities:
+        """Get router feature capabilities (cached per collection cycle)."""
+        cache_key = "supported_features"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         response = self.__get_hook("get_ui_support")
         data = json.loads(response)
         cap = RouterFeatureCapabilities(data["get_ui_support"])
+        self._cache[cache_key] = cap
         return cap
 
     def get_sw_mode(self) -> SwMode:
+        """Get router software mode (cached per collection cycle)."""
+        cache_key = "sw_mode"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         nvrams = self.__get_nvram("sw_mode", "wlc_psta", "wlc_express")
         sw_mode = int(nvrams["sw_mode"])
         wlc_psta = safe_int(nvrams.get("wlc_psta", 0))
@@ -691,9 +732,16 @@ class RouterClient:
             # Hotspot
             mode = SwMode.HS
 
+        self._cache[cache_key] = mode
         return mode
 
     def get_dual_wan_info(self) -> DualWanInfo:
+        """Get dual WAN configuration (cached per collection cycle)."""
+        cache_key = "dual_wan_info"
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         nvrams = self.__get_nvram("wans_dualwan", "wan0_enable", "wan1_enable", "wans_mode")
         active_wan_unit = int(json.loads(self.__get_hook("get_wan_unit"))["get_wan_unit"])
         caps = self.get_supported_features()
@@ -705,7 +753,7 @@ class RouterClient:
         }
 
         dualwan_enabled = caps.is_supported("dualwan") and DualWanOrigin.NONE not in set(wans_dualwan.values())
-        return DualWanInfo(
+        result = DualWanInfo(
             wan_origins=wans_dualwan,
             wan0_enable=to_bool(nvrams.get("wan0_enable", "0")),
             wan1_enable=to_bool(nvrams.get("wan1_enable", "0")),
@@ -713,6 +761,8 @@ class RouterClient:
             enabled=dualwan_enabled,
             wans_mode=WanMode(nvrams["wans_mode"]),
         )
+        self._cache[cache_key] = result
+        return result
 
     def get_wan_connection_info(self, wan_index: int = 0) -> WanConnectionInfo:
         nvrams = self.__get_nvram(

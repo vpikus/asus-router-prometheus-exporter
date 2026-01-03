@@ -16,6 +16,14 @@ if TYPE_CHECKING:
 class RouterClientProtocol(Protocol):
     """Protocol for router client interface."""
 
+    def clear_cache(self) -> None:
+        """Clear any cached data.
+
+        Should be called at the start of each collection cycle to ensure
+        fresh data is fetched from the router.
+        """
+        ...
+
     def get_info(self) -> Any:
         """Get router information."""
         ...
