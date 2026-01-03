@@ -74,7 +74,7 @@ class TestRetryHandler:
         assert mock_func.call_count == 1
 
     def test_exponential_backoff(self):
-        with patch("asus_router_exporter.core.error_handling.time.sleep") as mock_sleep:
+        with patch("asus_router_exporter.core.error_handling.retry.time.sleep") as mock_sleep:
             handler = RetryHandler(RetryConfig(max_attempts=4, initial_delay=1.0, backoff_factor=2.0, max_delay=10.0))
             mock_func = Mock(side_effect=[SimulatedError(), SimulatedError(), SimulatedError(), "success"])
 
@@ -86,7 +86,7 @@ class TestRetryHandler:
             assert delays == [1.0, 2.0, 4.0]
 
     def test_max_delay_cap(self):
-        with patch("asus_router_exporter.core.error_handling.time.sleep") as mock_sleep:
+        with patch("asus_router_exporter.core.error_handling.retry.time.sleep") as mock_sleep:
             handler = RetryHandler(RetryConfig(max_attempts=5, initial_delay=1.0, backoff_factor=10.0, max_delay=5.0))
             mock_func = Mock(
                 side_effect=[SimulatedError(), SimulatedError(), SimulatedError(), SimulatedError(), "success"]

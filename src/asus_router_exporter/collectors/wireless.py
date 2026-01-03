@@ -156,7 +156,7 @@ class WirelessCollector(BaseCollector):
         )
 
         # SSID hidden
-        hidden = getattr(band_info, "hidde_ssid", False)
+        hidden = getattr(band_info, "hidden_ssid", False)
         self._ssid_hidden.labels(product_id=product_id, wl_unit=wl_unit).set(1 if hidden else 0)
 
         # Band mode (one-hot)

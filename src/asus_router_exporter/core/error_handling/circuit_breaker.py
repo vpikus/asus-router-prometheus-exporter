@@ -1,9 +1,5 @@
 """
-Error handling strategies for the ASUS Router Exporter.
-
-Provides:
-- RetryHandler: Retry with exponential backoff
-- CircuitBreaker: Fail-fast pattern for fault tolerance
+Circuit breaker for fault tolerance.
 """
 
 from __future__ import annotations
@@ -16,110 +12,10 @@ from enum import Enum
 from threading import Lock
 from typing import Any
 
-from ..metrics.self_metrics import CircuitBreakerStateValue, SelfMetrics
-from .exceptions import AuthenticationError, CircuitBreakerOpenError, RetryExhaustedError
+from ...metrics.self_metrics import CircuitBreakerStateValue, SelfMetrics
+from ..exceptions import CircuitBreakerOpenError
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class RetryConfig:
-    """Configuration for retry behavior."""
-
-    enabled: bool = True
-    max_attempts: int = 3
-    backoff_factor: float = 2.0
-    max_delay: float = 30.0
-    initial_delay: float = 1.0
-    retryable_exceptions: tuple[type[Exception], ...] = (Exception,)
-
-
-class RetryHandler:
-    """
-    Retry handler with exponential backoff.
-
-    Example:
-        handler = RetryHandler(RetryConfig(max_attempts=3))
-        result = handler.execute(my_function, arg1, arg2)
-    """
-
-    def __init__(self, config: RetryConfig | None = None):
-        """
-        Initialize retry handler.
-
-        Args:
-            config: Retry configuration (uses defaults if not provided)
-        """
-        self.config = config or RetryConfig()
-
-    def execute(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """
-        Execute function with retry logic.
-
-        Args:
-            func: Function to execute
-            *args: Positional arguments for the function
-            **kwargs: Keyword arguments for the function
-
-        Returns:
-            Function result
-
-        Raises:
-            RetryExhaustedError: If all retry attempts fail
-            AuthenticationError: If a non-recoverable auth error occurs (not retried)
-
-        Note:
-            AuthenticationError subclasses with recoverable=False are NOT retried
-            to prevent account lockout. These include InvalidCredentialsError,
-            CaptchaRequiredError, AccountLockedError, and AuthenticationBlockedError.
-        """
-        if not self.config.enabled:
-            return func(*args, **kwargs)
-
-        # If retryable_exceptions is empty, no exceptions will be caught and retried.
-        # In this case, just execute directly and let any exception propagate.
-        if not self.config.retryable_exceptions:
-            return func(*args, **kwargs)
-
-        last_error: Exception | None = None
-        delay = self.config.initial_delay
-
-        for attempt in range(1, self.config.max_attempts + 1):
-            try:
-                return func(*args, **kwargs)
-            except self.config.retryable_exceptions as e:
-                # Don't retry non-recoverable authentication errors to prevent account lockout.
-                # These include InvalidCredentialsError, CaptchaRequiredError, AccountLockedError,
-                # and AuthenticationBlockedError - all have recoverable=False.
-                if isinstance(e, AuthenticationError) and not e.recoverable:
-                    logger.error(
-                        "Non-recoverable authentication error (attempt %d/%d): %s. Not retrying.",
-                        attempt,
-                        self.config.max_attempts,
-                        str(e),
-                    )
-                    raise
-
-                last_error = e
-                if attempt < self.config.max_attempts:
-                    logger.warning(
-                        "Attempt %d/%d failed: %s. Retrying in %.1fs...",
-                        attempt,
-                        self.config.max_attempts,
-                        str(e),
-                        delay,
-                    )
-                    SelfMetrics.get_instance().record_retry_attempt()
-                    time.sleep(delay)
-                    delay = min(delay * self.config.backoff_factor, self.config.max_delay)
-                else:
-                    logger.exception("All %d attempts failed", self.config.max_attempts)
-                    SelfMetrics.get_instance().record_retries_exhausted()
-
-        # last_error should never be None here since we only reach this point
-        # after catching at least one exception, but assert for type safety
-        assert last_error is not None, "Unexpected state: no error recorded"
-        raise RetryExhaustedError(self.config.max_attempts, last_error)
 
 
 class CircuitState(Enum):
@@ -317,80 +213,3 @@ class CircuitBreaker:
             metrics.set_circuit_breaker_state(CircuitBreakerStateValue.CLOSED)
             metrics.set_circuit_breaker_failure_count(0)
             logger.info("Circuit breaker reset to CLOSED")
-
-
-class CompositeErrorHandler:
-    """
-    Combines retry and circuit breaker for robust error handling.
-
-    The circuit breaker wraps the retry handler, so:
-    1. Circuit breaker checks if requests should be allowed
-    2. Retry handler attempts the operation with backoff
-    3. Failures are reported back to the circuit breaker
-    """
-
-    def __init__(self, retry_config: RetryConfig | None = None, circuit_config: CircuitBreakerConfig | None = None):
-        """
-        Initialize composite handler.
-
-        Args:
-            retry_config: Configuration for retry behavior
-            circuit_config: Configuration for circuit breaker
-        """
-        self.retry_handler = RetryHandler(retry_config)
-        self.circuit_breaker = CircuitBreaker(circuit_config)
-
-    def execute(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        """
-        Execute function with combined error handling.
-
-        Args:
-            func: Function to execute
-            *args: Positional arguments
-            **kwargs: Keyword arguments
-
-        Returns:
-            Function result
-
-        Raises:
-            CircuitBreakerOpenError: If circuit is open
-            RetryExhaustedError: If all retries fail
-        """
-
-        def retryable_call() -> Any:
-            return self.retry_handler.execute(func, *args, **kwargs)
-
-        return self.circuit_breaker.execute(retryable_call)
-
-    @classmethod
-    def from_config(cls, config: Any) -> CompositeErrorHandler:
-        """
-        Create handler from configuration object.
-
-        Args:
-            config: Configuration with error_handling section
-
-        Returns:
-            Configured CompositeErrorHandler
-        """
-        # Use `or {}` to handle case where config value is explicitly None
-        # (e.g., YAML with `error_handling: null` or `error_handling:` with no value)
-        error_config = config.get("error_handling", {}) or {}
-        retry = error_config.get("retry", {}) or {}
-        circuit = error_config.get("circuit_breaker", {}) or {}
-
-        retry_config = RetryConfig(
-            enabled=retry.get("enabled", True),
-            max_attempts=retry.get("max_attempts", 3),
-            backoff_factor=retry.get("backoff_factor", 2.0),
-            max_delay=retry.get("max_delay", 30.0),
-        )
-
-        circuit_config = CircuitBreakerConfig(
-            enabled=circuit.get("enabled", True),
-            failure_threshold=circuit.get("failure_threshold", 5),
-            recovery_timeout=circuit.get("recovery_timeout", 60.0),
-            half_open_max_calls=circuit.get("half_open_max_calls", 3),
-        )
-
-        return cls(retry_config, circuit_config)

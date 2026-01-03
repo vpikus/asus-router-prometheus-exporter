@@ -295,7 +295,7 @@ class Container:
             The actual client class should be provided or imported here.
         """
         # Import here to avoid circular imports
-        from ..client.router_client import RouterClientFactory
+        from ..client import RouterClientFactory
 
         host = self._config.get("router.host", "192.168.1.1")
         auth = self._config.get("router.auth", "")

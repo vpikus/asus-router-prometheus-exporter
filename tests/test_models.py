@@ -140,7 +140,7 @@ class TestWifiBandInfo:
             crypto=WifiCrypto.AES,
             mfp=WifiMfp.DISABLE,
             wep=WifiWpsWep.NONE,
-            hidde_ssid=False,
+            hidden_ssid=False,
             mbo_enabled=False,
         )
         assert band.ssid == "MyNetwork"

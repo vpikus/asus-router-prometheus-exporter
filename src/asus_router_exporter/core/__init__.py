@@ -9,6 +9,7 @@ from .container import Container
 from .error_handling import (
     CircuitBreaker,
     CircuitBreakerConfig,
+    CircuitBreakerState,
     CircuitState,
     CompositeErrorHandler,
     RetryConfig,
@@ -57,6 +58,7 @@ __all__ = [
     "RetryConfig",
     "RetryHandler",
     "CircuitState",
+    "CircuitBreakerState",
     "CircuitBreakerConfig",
     "CircuitBreaker",
     "CompositeErrorHandler",
