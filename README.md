@@ -209,6 +209,43 @@ error_handling:
 | `asus_router_up` | Whether the last scrape was successful (1=success, 0=failure) |
 | `asus_router_scrape_duration_seconds` | Duration of the last scrape |
 
+### Exporter Self-Metrics
+
+These metrics provide visibility into the exporter's internal behavior for observability and debugging.
+
+#### Circuit Breaker
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `asus_router_exporter_circuit_breaker_state` | Gauge | - | Current state (0=closed, 1=open, 2=half_open) |
+| `asus_router_exporter_circuit_breaker_failure_count` | Gauge | - | Current consecutive failure count |
+| `asus_router_exporter_circuit_breaker_state_transitions_total` | Counter | `from_state`, `to_state` | State transition count |
+
+#### Retry Handling
+| Metric | Type | Description |
+|--------|------|-------------|
+| `asus_router_exporter_retry_attempts_total` | Counter | Total retry attempts (excludes initial attempt) |
+| `asus_router_exporter_retries_exhausted_total` | Counter | Times all retries were exhausted |
+
+#### Cache Performance
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `asus_router_exporter_cache_hits_total` | Counter | `cache_key` | Cache hits per key |
+| `asus_router_exporter_cache_misses_total` | Counter | `cache_key` | Cache misses per key |
+
+#### Collector Performance
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `asus_router_exporter_collector_success_total` | Counter | `collector` | Successful collections per collector |
+| `asus_router_exporter_collector_errors_total` | Counter | `collector` | Collection errors per collector |
+| `asus_router_exporter_collector_duration_seconds` | Gauge | `collector` | Duration of last collection |
+
+#### API Performance
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `asus_router_exporter_api_requests_total` | Counter | `method` | Total API requests per method |
+| `asus_router_exporter_api_request_duration_seconds` | Histogram | `method` | API call duration distribution |
+| `asus_router_exporter_api_errors_total` | Counter | `method` | API errors per method |
+
 ### Router Info
 | Metric | Description |
 |--------|-------------|
@@ -343,6 +380,30 @@ groups:
         for: 1m
         labels:
           severity: critical
+
+      - alert: CircuitBreakerOpen
+        expr: asus_router_exporter_circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Exporter circuit breaker is open"
+
+      - alert: HighRetryRate
+        expr: rate(asus_router_exporter_retry_attempts_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High retry rate indicates connectivity issues"
+
+      - alert: CollectorErrors
+        expr: rate(asus_router_exporter_collector_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Collector {{ $labels.collector }} is experiencing errors"
 ```
 
 ## Development
