@@ -1080,18 +1080,20 @@ class TestRouterClientWirelessInfo:
         # 2. get_wireless_info nvram response (wps_enable, wlc_band, smart_connect_x)
         wireless_nvram = MagicMock()
         wireless_nvram.status_code = 200
-        wireless_nvram.text = json.dumps({
-            "wps_enable": "1",
-            "wlc_band": "0",
-            "smart_connect_x": "1",
-        })
+        wireless_nvram.text = json.dumps(
+            {
+                "wps_enable": "1",
+                "wlc_band": "0",
+                "smart_connect_x": "1",
+            }
+        )
 
         # 3. get_supported_features response
         features_response = MagicMock()
         features_response.status_code = 200
-        features_response.text = json.dumps({
-            "get_ui_support": {"2.4G": "1", "5G": "1", "5G-2": "0", "wifi6e": "0", "concurrep": "0"}
-        })
+        features_response.text = json.dumps(
+            {"get_ui_support": {"2.4G": "1", "5G": "1", "5G-2": "0", "wifi6e": "0", "concurrep": "0"}}
+        )
 
         # 4. get_sw_mode response
         sw_mode_response = MagicMock()
@@ -1101,32 +1103,36 @@ class TestRouterClientWirelessInfo:
         # 5. 2.4G band info
         band_2g_response = MagicMock()
         band_2g_response.status_code = 200
-        band_2g_response.text = json.dumps({
-            "wl0_ssid": "Home_2G",
-            "wl0_hwaddr": "AA:BB:CC:DD:EE:01",
-            "wl0_nmode_x": "0",
-            "wl0_auth_mode_x": "psk2",
-            "wl0_crypto": "aes",
-            "wl0_mfp": "1",
-            "wl0_wep_x": "0",
-            "wl0_closed": "0",
-            "wl0_mbo_enable": "1",
-        })
+        band_2g_response.text = json.dumps(
+            {
+                "wl0_ssid": "Home_2G",
+                "wl0_hwaddr": "AA:BB:CC:DD:EE:01",
+                "wl0_nmode_x": "0",
+                "wl0_auth_mode_x": "psk2",
+                "wl0_crypto": "aes",
+                "wl0_mfp": "1",
+                "wl0_wep_x": "0",
+                "wl0_closed": "0",
+                "wl0_mbo_enable": "1",
+            }
+        )
 
         # 6. 5G band info
         band_5g_response = MagicMock()
         band_5g_response.status_code = 200
-        band_5g_response.text = json.dumps({
-            "wl1_ssid": "Home_5G",
-            "wl1_hwaddr": "AA:BB:CC:DD:EE:02",
-            "wl1_nmode_x": "8",
-            "wl1_auth_mode_x": "sae",
-            "wl1_crypto": "aes",
-            "wl1_mfp": "2",
-            "wl1_wep_x": "0",
-            "wl1_closed": "1",
-            "wl1_mbo_enable": "0",
-        })
+        band_5g_response.text = json.dumps(
+            {
+                "wl1_ssid": "Home_5G",
+                "wl1_hwaddr": "AA:BB:CC:DD:EE:02",
+                "wl1_nmode_x": "8",
+                "wl1_auth_mode_x": "sae",
+                "wl1_crypto": "aes",
+                "wl1_mfp": "2",
+                "wl1_wep_x": "0",
+                "wl1_closed": "1",
+                "wl1_mbo_enable": "0",
+            }
+        )
 
         session.get.side_effect = [
             nband_response,
@@ -1172,17 +1178,19 @@ class TestRouterClientWirelessInfo:
 
         wireless_nvram = MagicMock()
         wireless_nvram.status_code = 200
-        wireless_nvram.text = json.dumps({
-            "wps_enable": "0",
-            "wlc_band": "0",
-            "smart_connect_x": "0",
-        })
+        wireless_nvram.text = json.dumps(
+            {
+                "wps_enable": "0",
+                "wlc_band": "0",
+                "smart_connect_x": "0",
+            }
+        )
 
         features_response = MagicMock()
         features_response.status_code = 200
-        features_response.text = json.dumps({
-            "get_ui_support": {"2.4G": "1", "5G": "0", "5G-2": "0", "wifi6e": "0", "concurrep": "0"}
-        })
+        features_response.text = json.dumps(
+            {"get_ui_support": {"2.4G": "1", "5G": "0", "5G-2": "0", "wifi6e": "0", "concurrep": "0"}}
+        )
 
         sw_mode_response = MagicMock()
         sw_mode_response.status_code = 200
@@ -1190,16 +1198,18 @@ class TestRouterClientWirelessInfo:
 
         band_2g_response = MagicMock()
         band_2g_response.status_code = 200
-        band_2g_response.text = json.dumps({
-            "wl0_ssid": "BasicWifi",
-            "wl0_hwaddr": "AA:BB:CC:DD:EE:FF",
-            "wl0_nmode_x": "2",  # LEGACY
-            "wl0_auth_mode_x": "open",
-            "wl0_crypto": "aes",
-            "wl0_mfp": "0",
-            "wl0_wep_x": "0",
-            "wl0_closed": "0",
-        })
+        band_2g_response.text = json.dumps(
+            {
+                "wl0_ssid": "BasicWifi",
+                "wl0_hwaddr": "AA:BB:CC:DD:EE:FF",
+                "wl0_nmode_x": "2",  # LEGACY
+                "wl0_auth_mode_x": "open",
+                "wl0_crypto": "aes",
+                "wl0_mfp": "0",
+                "wl0_wep_x": "0",
+                "wl0_closed": "0",
+            }
+        )
 
         session.get.side_effect = [
             nband_response,
@@ -1232,17 +1242,19 @@ class TestRouterClientWirelessInfo:
 
         wireless_nvram = MagicMock()
         wireless_nvram.status_code = 200
-        wireless_nvram.text = json.dumps({
-            "wps_enable": "0",
-            "wlc_band": "0",  # Connected to 2.4G
-            "smart_connect_x": "0",
-        })
+        wireless_nvram.text = json.dumps(
+            {
+                "wps_enable": "0",
+                "wlc_band": "0",  # Connected to 2.4G
+                "smart_connect_x": "0",
+            }
+        )
 
         features_response = MagicMock()
         features_response.status_code = 200
-        features_response.text = json.dumps({
-            "get_ui_support": {"2.4G": "1", "5G": "1", "5G-2": "0", "wifi6e": "0", "concurrep": "0"}
-        })
+        features_response.text = json.dumps(
+            {"get_ui_support": {"2.4G": "1", "5G": "1", "5G-2": "0", "wifi6e": "0", "concurrep": "0"}}
+        )
 
         # Repeater mode
         sw_mode_response = MagicMock()
@@ -1252,30 +1264,34 @@ class TestRouterClientWirelessInfo:
         # 2.4G in repeater mode uses .1 suffix (wlc_band=0 and not concurrep)
         band_2g_response = MagicMock()
         band_2g_response.status_code = 200
-        band_2g_response.text = json.dumps({
-            "wl0.1_ssid": "Repeater_2G",
-            "wl0.1_hwaddr": "AA:BB:CC:DD:EE:01",
-            "wl0.1_nmode_x": "0",
-            "wl0.1_auth_mode_x": "psk2",
-            "wl0.1_crypto": "aes",
-            "wl0.1_mfp": "0",
-            "wl0.1_wep_x": "0",
-            "wl0.1_closed": "0",
-        })
+        band_2g_response.text = json.dumps(
+            {
+                "wl0.1_ssid": "Repeater_2G",
+                "wl0.1_hwaddr": "AA:BB:CC:DD:EE:01",
+                "wl0.1_nmode_x": "0",
+                "wl0.1_auth_mode_x": "psk2",
+                "wl0.1_crypto": "aes",
+                "wl0.1_mfp": "0",
+                "wl0.1_wep_x": "0",
+                "wl0.1_closed": "0",
+            }
+        )
 
         # 5G not in repeater mode (wlc_band=0, not 1)
         band_5g_response = MagicMock()
         band_5g_response.status_code = 200
-        band_5g_response.text = json.dumps({
-            "wl1_ssid": "Normal_5G",
-            "wl1_hwaddr": "AA:BB:CC:DD:EE:02",
-            "wl1_nmode_x": "0",
-            "wl1_auth_mode_x": "psk2",
-            "wl1_crypto": "aes",
-            "wl1_mfp": "0",
-            "wl1_wep_x": "0",
-            "wl1_closed": "0",
-        })
+        band_5g_response.text = json.dumps(
+            {
+                "wl1_ssid": "Normal_5G",
+                "wl1_hwaddr": "AA:BB:CC:DD:EE:02",
+                "wl1_nmode_x": "0",
+                "wl1_auth_mode_x": "psk2",
+                "wl1_crypto": "aes",
+                "wl1_mfp": "0",
+                "wl1_wep_x": "0",
+                "wl1_closed": "0",
+            }
+        )
 
         session.get.side_effect = [
             nband_response,
@@ -1304,17 +1320,19 @@ class TestRouterClientWirelessInfo:
 
         wireless_nvram = MagicMock()
         wireless_nvram.status_code = 200
-        wireless_nvram.text = json.dumps({
-            "wps_enable": "1",
-            "wlc_band": "0",
-            "smart_connect_x": "1",
-        })
+        wireless_nvram.text = json.dumps(
+            {
+                "wps_enable": "1",
+                "wlc_band": "0",
+                "smart_connect_x": "1",
+            }
+        )
 
         features_response = MagicMock()
         features_response.status_code = 200
-        features_response.text = json.dumps({
-            "get_ui_support": {"2.4G": "1", "5G": "1", "5G-2": "0", "wifi6e": "1", "concurrep": "0"}
-        })
+        features_response.text = json.dumps(
+            {"get_ui_support": {"2.4G": "1", "5G": "1", "5G-2": "0", "wifi6e": "1", "concurrep": "0"}}
+        )
 
         sw_mode_response = MagicMock()
         sw_mode_response.status_code = 200
@@ -1322,43 +1340,49 @@ class TestRouterClientWirelessInfo:
 
         band_2g_response = MagicMock()
         band_2g_response.status_code = 200
-        band_2g_response.text = json.dumps({
-            "wl0_ssid": "Home_2G",
-            "wl0_hwaddr": "AA:BB:CC:DD:EE:01",
-            "wl0_nmode_x": "0",
-            "wl0_auth_mode_x": "psk2sae",
-            "wl0_crypto": "aes",
-            "wl0_mfp": "1",
-            "wl0_wep_x": "0",
-            "wl0_closed": "0",
-        })
+        band_2g_response.text = json.dumps(
+            {
+                "wl0_ssid": "Home_2G",
+                "wl0_hwaddr": "AA:BB:CC:DD:EE:01",
+                "wl0_nmode_x": "0",
+                "wl0_auth_mode_x": "psk2sae",
+                "wl0_crypto": "aes",
+                "wl0_mfp": "1",
+                "wl0_wep_x": "0",
+                "wl0_closed": "0",
+            }
+        )
 
         band_5g_response = MagicMock()
         band_5g_response.status_code = 200
-        band_5g_response.text = json.dumps({
-            "wl1_ssid": "Home_5G",
-            "wl1_hwaddr": "AA:BB:CC:DD:EE:02",
-            "wl1_nmode_x": "9",  # AX_ONLY
-            "wl1_auth_mode_x": "sae",
-            "wl1_crypto": "aes",
-            "wl1_mfp": "2",
-            "wl1_wep_x": "0",
-            "wl1_closed": "0",
-        })
+        band_5g_response.text = json.dumps(
+            {
+                "wl1_ssid": "Home_5G",
+                "wl1_hwaddr": "AA:BB:CC:DD:EE:02",
+                "wl1_nmode_x": "9",  # AX_ONLY
+                "wl1_auth_mode_x": "sae",
+                "wl1_crypto": "aes",
+                "wl1_mfp": "2",
+                "wl1_wep_x": "0",
+                "wl1_closed": "0",
+            }
+        )
 
         # 6G band (wl3)
         band_6g_response = MagicMock()
         band_6g_response.status_code = 200
-        band_6g_response.text = json.dumps({
-            "wl3_ssid": "Home_6G",
-            "wl3_hwaddr": "AA:BB:CC:DD:EE:03",
-            "wl3_nmode_x": "9",
-            "wl3_auth_mode_x": "sae",
-            "wl3_crypto": "aes",
-            "wl3_mfp": "2",
-            "wl3_wep_x": "0",
-            "wl3_closed": "0",
-        })
+        band_6g_response.text = json.dumps(
+            {
+                "wl3_ssid": "Home_6G",
+                "wl3_hwaddr": "AA:BB:CC:DD:EE:03",
+                "wl3_nmode_x": "9",
+                "wl3_auth_mode_x": "sae",
+                "wl3_crypto": "aes",
+                "wl3_mfp": "2",
+                "wl3_wep_x": "0",
+                "wl3_closed": "0",
+            }
+        )
 
         session.get.side_effect = [
             nband_response,
