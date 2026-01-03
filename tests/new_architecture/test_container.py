@@ -702,9 +702,9 @@ class TestContainerConnectionErrorHandling:
 
         # Should raise RouterConnectionError wrapping the original error
         import pytest
+        from requests.exceptions import ConnectionError as RequestsConnectionError
 
         from asus_router_exporter.core.exceptions import RouterConnectionError
-        from requests.exceptions import ConnectionError as RequestsConnectionError
 
         with pytest.raises(RouterConnectionError) as exc_info:
             container.collect_metrics(router_info)
@@ -731,9 +731,9 @@ class TestContainerConnectionErrorHandling:
         router_info = MagicMock()
 
         import pytest
+        from requests.exceptions import ConnectionError as RequestsConnectionError
 
         from asus_router_exporter.core.exceptions import RouterConnectionError
-        from requests.exceptions import ConnectionError as RequestsConnectionError
 
         with pytest.raises(RouterConnectionError) as exc_info:
             container.collect_metrics(router_info)
