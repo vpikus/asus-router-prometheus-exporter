@@ -354,9 +354,10 @@ class TestApiMetrics:
         """Test track_api_call context manager on error."""
         with pytest.raises(ValueError, match="test error"):
             with self.metrics.track_api_call("get_port_status"):
+                time.sleep(0.01)  # Small delay to verify duration is recorded
                 raise ValueError("test error")
 
-        # Request count should NOT increment on error (only duration)
+        # Request count should NOT increment on error
         count = self.registry.get_sample_value(
             "asus_router_exporter_api_requests_total",
             {"method": "get_port_status"},
@@ -365,9 +366,20 @@ class TestApiMetrics:
             "asus_router_exporter_api_errors_total",
             {"method": "get_port_status"},
         )
+        # Duration should still be recorded on error
+        duration_count = self.registry.get_sample_value(
+            "asus_router_exporter_api_request_duration_seconds_count",
+            {"method": "get_port_status"},
+        )
+        duration_sum = self.registry.get_sample_value(
+            "asus_router_exporter_api_request_duration_seconds_sum",
+            {"method": "get_port_status"},
+        )
 
         assert count is None  # No successful requests
         assert error_count == 1
+        assert duration_count == 1  # Duration recorded even on error
+        assert duration_sum >= 0.01  # At least the sleep time
 
     def test_track_api_call_records_duration(self) -> None:
         """Test that track_api_call records realistic duration."""

@@ -284,7 +284,10 @@ class SelfMetrics:
 
         Records:
         - Request count and duration on success
-        - Error count on exception (re-raises the exception)
+        - Error count and duration on exception (re-raises the exception)
+
+        Duration is always recorded to help distinguish quick failures
+        (e.g., auth errors) from slow failures (e.g., timeouts).
         """
         start_time = time.time()
         try:
@@ -292,5 +295,7 @@ class SelfMetrics:
             duration = time.time() - start_time
             self.record_api_request(method, duration)
         except Exception:
+            duration = time.time() - start_time
+            self._api_request_duration.labels(method=method).observe(duration)
             self.record_api_error(method)
             raise
