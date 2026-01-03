@@ -22,6 +22,13 @@ from asus_router_exporter.client.models import (
     WanMode,
     WanState,
     WanSubState,
+    WifiAuthMode,
+    WifiBand,
+    WifiCrypto,
+    WifiMfp,
+    WifiMode,
+    WifiUnit,
+    WifiWpsWep,
 )
 from asus_router_exporter.core.exceptions import (
     AccountLockedError,
@@ -897,3 +904,509 @@ class TestRouterClientIntegration:
         # Test sw_mode
         mode = client.get_sw_mode()
         assert mode == SwMode.RT
+
+
+class TestRouterClientWirelessInfo:
+    """Tests for wireless info methods with JSON to DTO mapping."""
+
+    def _create_client_with_responses(self, *responses):
+        """Create a client with mocked session returning given responses in order."""
+        session = MagicMock()
+        mock_responses = []
+        for response_data in responses:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = json.dumps(response_data)
+            mock_responses.append(mock_response)
+        session.get.side_effect = mock_responses
+        return RouterClient(host="http://192.168.1.1", session=session)
+
+    # -------------------------------------------------------------------------
+    # get_wl_nband_info tests
+    # -------------------------------------------------------------------------
+
+    def test_get_wl_nband_info_single_2g_band(self):
+        """Test parsing single 2.4G band."""
+        client = self._create_client_with_responses({"wl_nband_info": [2]})
+        result = client.get_wl_nband_info()
+
+        assert result[WifiBand._2G] == 1
+        assert result[WifiBand._5G] == 0
+        assert result[WifiBand._6G] == 0
+
+    def test_get_wl_nband_info_dual_band(self):
+        """Test parsing dual band (2.4G + 5G)."""
+        client = self._create_client_with_responses({"wl_nband_info": [2, 1]})
+        result = client.get_wl_nband_info()
+
+        assert result[WifiBand._2G] == 1
+        assert result[WifiBand._5G] == 1
+        assert result[WifiBand._6G] == 0
+
+    def test_get_wl_nband_info_tri_band(self):
+        """Test parsing tri-band (2.4G + dual 5G)."""
+        client = self._create_client_with_responses({"wl_nband_info": [2, 1, 1]})
+        result = client.get_wl_nband_info()
+
+        assert result[WifiBand._2G] == 1
+        assert result[WifiBand._5G] == 2  # Two 5G bands
+        assert result[WifiBand._6G] == 0
+
+    def test_get_wl_nband_info_wifi6e(self):
+        """Test parsing WiFi 6E with 6G band."""
+        client = self._create_client_with_responses({"wl_nband_info": [2, 1, 4]})
+        result = client.get_wl_nband_info()
+
+        assert result[WifiBand._2G] == 1
+        assert result[WifiBand._5G] == 1
+        assert result[WifiBand._6G] == 1
+
+    def test_get_wl_nband_info_empty(self):
+        """Test parsing empty band info."""
+        client = self._create_client_with_responses({"wl_nband_info": []})
+        result = client.get_wl_nband_info()
+
+        assert result[WifiBand._2G] == 0
+        assert result[WifiBand._5G] == 0
+        assert result[WifiBand._6G] == 0
+
+    # -------------------------------------------------------------------------
+    # get_wireless_band_info tests
+    # -------------------------------------------------------------------------
+
+    def test_get_wireless_band_info_2g_basic(self):
+        """Test parsing 2.4G band info from nvram."""
+        nvram_data = {
+            "wl0_ssid": "MyNetwork",
+            "wl0_hwaddr": "AA:BB:CC:DD:EE:FF",
+            "wl0_nmode_x": "0",  # AUTO
+            "wl0_auth_mode_x": "psk2",
+            "wl0_crypto": "aes",
+            "wl0_mfp": "0",  # DISABLE
+            "wl0_wep_x": "0",  # NONE
+            "wl0_closed": "0",  # Not hidden
+            "wl0_mbo_enable": "1",
+        }
+        client = self._create_client_with_responses(nvram_data)
+        result = client.get_wireless_band_info(WifiUnit.WL_2G, repeater=False)
+
+        assert result.ssid == "MyNetwork"
+        assert result.mac == "AA:BB:CC:DD:EE:FF"
+        assert result.mode == WifiMode.AUTO
+        assert result.auth_mode == WifiAuthMode.PSK2
+        assert result.crypto == WifiCrypto.AES
+        assert result.mfp == WifiMfp.DISABLE
+        assert result.wep == WifiWpsWep.NONE
+        assert result.hidden_ssid is False
+        assert result.mbo_enabled is True
+
+    def test_get_wireless_band_info_5g_hidden_ssid(self):
+        """Test parsing 5G band with hidden SSID."""
+        nvram_data = {
+            "wl1_ssid": "HiddenNetwork",
+            "wl1_hwaddr": "11:22:33:44:55:66",
+            "wl1_nmode_x": "8",  # MIXED
+            "wl1_auth_mode_x": "sae",
+            "wl1_crypto": "aes",
+            "wl1_mfp": "2",  # REQUIRED
+            "wl1_wep_x": "0",
+            "wl1_closed": "1",  # Hidden
+            "wl1_mbo_enable": "0",
+        }
+        client = self._create_client_with_responses(nvram_data)
+        result = client.get_wireless_band_info(WifiUnit.WL_5G, repeater=False)
+
+        assert result.ssid == "HiddenNetwork"
+        assert result.mac == "11:22:33:44:55:66"
+        assert result.mode == WifiMode.MIXED
+        assert result.auth_mode == WifiAuthMode.SAE
+        assert result.mfp == WifiMfp.REQUIRED
+        assert result.hidden_ssid is True
+        assert result.mbo_enabled is False
+
+    def test_get_wireless_band_info_repeater_mode(self):
+        """Test parsing band info in repeater mode (uses .1 suffix)."""
+        nvram_data = {
+            "wl0.1_ssid": "RepeaterNetwork",
+            "wl0.1_hwaddr": "AA:AA:AA:AA:AA:AA",
+            "wl0.1_nmode_x": "1",  # N_ONLY
+            "wl0.1_auth_mode_x": "pskpsk2",
+            "wl0.1_crypto": "tkip+aes",
+            "wl0.1_mfp": "1",  # CAPABLE
+            "wl0.1_wep_x": "0",
+            "wl0.1_closed": "0",
+            "wl0.1_mbo_enable": "0",
+        }
+        client = self._create_client_with_responses(nvram_data)
+        result = client.get_wireless_band_info(WifiUnit.WL_2G, repeater=True)
+
+        assert result.ssid == "RepeaterNetwork"
+        assert result.mode == WifiMode.N_ONLY
+        assert result.auth_mode == WifiAuthMode.PSKPSK2
+        assert result.crypto == WifiCrypto.TKIP_AES
+        assert result.mfp == WifiMfp.CAPABLE
+
+    def test_get_wireless_band_info_mbo_enable_missing(self):
+        """Test that missing mbo_enable defaults to False."""
+        nvram_data = {
+            "wl0_ssid": "Network",
+            "wl0_hwaddr": "AA:BB:CC:DD:EE:FF",
+            "wl0_nmode_x": "0",
+            "wl0_auth_mode_x": "open",
+            "wl0_crypto": "aes",
+            "wl0_mfp": "0",
+            "wl0_wep_x": "0",
+            "wl0_closed": "0",
+            # wl0_mbo_enable intentionally missing
+        }
+        client = self._create_client_with_responses(nvram_data)
+        result = client.get_wireless_band_info(WifiUnit.WL_2G, repeater=False)
+
+        assert result.mbo_enabled is False
+
+    # -------------------------------------------------------------------------
+    # get_wireless_info tests
+    # -------------------------------------------------------------------------
+
+    def test_get_wireless_info_dual_band_router_mode(self):
+        """Test full wireless info collection for dual-band router."""
+        session = MagicMock()
+
+        # 1. get_wl_nband_info response
+        nband_response = MagicMock()
+        nband_response.status_code = 200
+        nband_response.text = json.dumps({"wl_nband_info": [2, 1]})
+
+        # 2. get_wireless_info nvram response (wps_enable, wlc_band, smart_connect_x)
+        wireless_nvram = MagicMock()
+        wireless_nvram.status_code = 200
+        wireless_nvram.text = json.dumps(
+            {
+                "wps_enable": "1",
+                "wlc_band": "0",
+                "smart_connect_x": "1",
+            }
+        )
+
+        # 3. get_supported_features response
+        features_response = MagicMock()
+        features_response.status_code = 200
+        features_response.text = json.dumps(
+            {"get_ui_support": {"2.4G": "1", "5G": "1", "5G-2": "0", "wifi6e": "0", "concurrep": "0"}}
+        )
+
+        # 4. get_sw_mode response
+        sw_mode_response = MagicMock()
+        sw_mode_response.status_code = 200
+        sw_mode_response.text = json.dumps({"sw_mode": "1", "wlc_psta": "0", "wlc_express": "0"})
+
+        # 5. 2.4G band info
+        band_2g_response = MagicMock()
+        band_2g_response.status_code = 200
+        band_2g_response.text = json.dumps(
+            {
+                "wl0_ssid": "Home_2G",
+                "wl0_hwaddr": "AA:BB:CC:DD:EE:01",
+                "wl0_nmode_x": "0",
+                "wl0_auth_mode_x": "psk2",
+                "wl0_crypto": "aes",
+                "wl0_mfp": "1",
+                "wl0_wep_x": "0",
+                "wl0_closed": "0",
+                "wl0_mbo_enable": "1",
+            }
+        )
+
+        # 6. 5G band info
+        band_5g_response = MagicMock()
+        band_5g_response.status_code = 200
+        band_5g_response.text = json.dumps(
+            {
+                "wl1_ssid": "Home_5G",
+                "wl1_hwaddr": "AA:BB:CC:DD:EE:02",
+                "wl1_nmode_x": "8",
+                "wl1_auth_mode_x": "sae",
+                "wl1_crypto": "aes",
+                "wl1_mfp": "2",
+                "wl1_wep_x": "0",
+                "wl1_closed": "1",
+                "wl1_mbo_enable": "0",
+            }
+        )
+
+        session.get.side_effect = [
+            nband_response,
+            wireless_nvram,
+            features_response,
+            sw_mode_response,
+            band_2g_response,
+            band_5g_response,
+        ]
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+        result = client.get_wireless_info()
+
+        # Verify top-level WifiInfo
+        assert result.wps_enabled is True
+        assert result.smart_connect_enabled is True
+        assert result.bands_count[WifiBand._2G] == 1
+        assert result.bands_count[WifiBand._5G] == 1
+
+        # Verify 2.4G band
+        assert result.band_2G_info is not None
+        assert result.band_2G_info.ssid == "Home_2G"
+        assert result.band_2G_info.auth_mode == WifiAuthMode.PSK2
+        assert result.band_2G_info.hidden_ssid is False
+
+        # Verify 5G band
+        assert result.band_5G_info is not None
+        assert result.band_5G_info.ssid == "Home_5G"
+        assert result.band_5G_info.auth_mode == WifiAuthMode.SAE
+        assert result.band_5G_info.hidden_ssid is True
+
+        # No 5G-2 or 6G
+        assert result.band_5G_2_info is None
+        assert result.band_6G_info is None
+
+    def test_get_wireless_info_single_band(self):
+        """Test wireless info for single 2.4G band router."""
+        session = MagicMock()
+
+        nband_response = MagicMock()
+        nband_response.status_code = 200
+        nband_response.text = json.dumps({"wl_nband_info": [2]})
+
+        wireless_nvram = MagicMock()
+        wireless_nvram.status_code = 200
+        wireless_nvram.text = json.dumps(
+            {
+                "wps_enable": "0",
+                "wlc_band": "0",
+                "smart_connect_x": "0",
+            }
+        )
+
+        features_response = MagicMock()
+        features_response.status_code = 200
+        features_response.text = json.dumps(
+            {"get_ui_support": {"2.4G": "1", "5G": "0", "5G-2": "0", "wifi6e": "0", "concurrep": "0"}}
+        )
+
+        sw_mode_response = MagicMock()
+        sw_mode_response.status_code = 200
+        sw_mode_response.text = json.dumps({"sw_mode": "1", "wlc_psta": "0", "wlc_express": "0"})
+
+        band_2g_response = MagicMock()
+        band_2g_response.status_code = 200
+        band_2g_response.text = json.dumps(
+            {
+                "wl0_ssid": "BasicWifi",
+                "wl0_hwaddr": "AA:BB:CC:DD:EE:FF",
+                "wl0_nmode_x": "2",  # LEGACY
+                "wl0_auth_mode_x": "open",
+                "wl0_crypto": "aes",
+                "wl0_mfp": "0",
+                "wl0_wep_x": "0",
+                "wl0_closed": "0",
+            }
+        )
+
+        session.get.side_effect = [
+            nband_response,
+            wireless_nvram,
+            features_response,
+            sw_mode_response,
+            band_2g_response,
+        ]
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+        result = client.get_wireless_info()
+
+        assert result.wps_enabled is False
+        assert result.smart_connect_enabled is False
+        assert result.band_2G_info is not None
+        assert result.band_2G_info.ssid == "BasicWifi"
+        assert result.band_2G_info.mode == WifiMode.LEGACY
+        assert result.band_2G_info.auth_mode == WifiAuthMode.OPEN
+        assert result.band_5G_info is None
+        assert result.band_5G_2_info is None
+        assert result.band_6G_info is None
+
+    def test_get_wireless_info_repeater_mode(self):
+        """Test wireless info in repeater mode uses .1 suffix for correct band."""
+        session = MagicMock()
+
+        nband_response = MagicMock()
+        nband_response.status_code = 200
+        nband_response.text = json.dumps({"wl_nband_info": [2, 1]})
+
+        wireless_nvram = MagicMock()
+        wireless_nvram.status_code = 200
+        wireless_nvram.text = json.dumps(
+            {
+                "wps_enable": "0",
+                "wlc_band": "0",  # Connected to 2.4G
+                "smart_connect_x": "0",
+            }
+        )
+
+        features_response = MagicMock()
+        features_response.status_code = 200
+        features_response.text = json.dumps(
+            {"get_ui_support": {"2.4G": "1", "5G": "1", "5G-2": "0", "wifi6e": "0", "concurrep": "0"}}
+        )
+
+        # Repeater mode
+        sw_mode_response = MagicMock()
+        sw_mode_response.status_code = 200
+        sw_mode_response.text = json.dumps({"sw_mode": "2", "wlc_psta": "0", "wlc_express": "0"})
+
+        # 2.4G in repeater mode uses .1 suffix (wlc_band=0 and not concurrep)
+        band_2g_response = MagicMock()
+        band_2g_response.status_code = 200
+        band_2g_response.text = json.dumps(
+            {
+                "wl0.1_ssid": "Repeater_2G",
+                "wl0.1_hwaddr": "AA:BB:CC:DD:EE:01",
+                "wl0.1_nmode_x": "0",
+                "wl0.1_auth_mode_x": "psk2",
+                "wl0.1_crypto": "aes",
+                "wl0.1_mfp": "0",
+                "wl0.1_wep_x": "0",
+                "wl0.1_closed": "0",
+            }
+        )
+
+        # 5G not in repeater mode (wlc_band=0, not 1)
+        band_5g_response = MagicMock()
+        band_5g_response.status_code = 200
+        band_5g_response.text = json.dumps(
+            {
+                "wl1_ssid": "Normal_5G",
+                "wl1_hwaddr": "AA:BB:CC:DD:EE:02",
+                "wl1_nmode_x": "0",
+                "wl1_auth_mode_x": "psk2",
+                "wl1_crypto": "aes",
+                "wl1_mfp": "0",
+                "wl1_wep_x": "0",
+                "wl1_closed": "0",
+            }
+        )
+
+        session.get.side_effect = [
+            nband_response,
+            wireless_nvram,
+            features_response,
+            sw_mode_response,
+            band_2g_response,
+            band_5g_response,
+        ]
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+        result = client.get_wireless_info()
+
+        # 2.4G should use repeater SSID
+        assert result.band_2G_info.ssid == "Repeater_2G"
+        # 5G should use normal SSID
+        assert result.band_5G_info.ssid == "Normal_5G"
+
+    def test_get_wireless_info_wifi6e(self):
+        """Test wireless info with WiFi 6E (6G band)."""
+        session = MagicMock()
+
+        nband_response = MagicMock()
+        nband_response.status_code = 200
+        nband_response.text = json.dumps({"wl_nband_info": [2, 1, 4]})
+
+        wireless_nvram = MagicMock()
+        wireless_nvram.status_code = 200
+        wireless_nvram.text = json.dumps(
+            {
+                "wps_enable": "1",
+                "wlc_band": "0",
+                "smart_connect_x": "1",
+            }
+        )
+
+        features_response = MagicMock()
+        features_response.status_code = 200
+        features_response.text = json.dumps(
+            {"get_ui_support": {"2.4G": "1", "5G": "1", "5G-2": "0", "wifi6e": "1", "concurrep": "0"}}
+        )
+
+        sw_mode_response = MagicMock()
+        sw_mode_response.status_code = 200
+        sw_mode_response.text = json.dumps({"sw_mode": "1", "wlc_psta": "0", "wlc_express": "0"})
+
+        band_2g_response = MagicMock()
+        band_2g_response.status_code = 200
+        band_2g_response.text = json.dumps(
+            {
+                "wl0_ssid": "Home_2G",
+                "wl0_hwaddr": "AA:BB:CC:DD:EE:01",
+                "wl0_nmode_x": "0",
+                "wl0_auth_mode_x": "psk2sae",
+                "wl0_crypto": "aes",
+                "wl0_mfp": "1",
+                "wl0_wep_x": "0",
+                "wl0_closed": "0",
+            }
+        )
+
+        band_5g_response = MagicMock()
+        band_5g_response.status_code = 200
+        band_5g_response.text = json.dumps(
+            {
+                "wl1_ssid": "Home_5G",
+                "wl1_hwaddr": "AA:BB:CC:DD:EE:02",
+                "wl1_nmode_x": "9",  # AX_ONLY
+                "wl1_auth_mode_x": "sae",
+                "wl1_crypto": "aes",
+                "wl1_mfp": "2",
+                "wl1_wep_x": "0",
+                "wl1_closed": "0",
+            }
+        )
+
+        # 6G band (wl3)
+        band_6g_response = MagicMock()
+        band_6g_response.status_code = 200
+        band_6g_response.text = json.dumps(
+            {
+                "wl3_ssid": "Home_6G",
+                "wl3_hwaddr": "AA:BB:CC:DD:EE:03",
+                "wl3_nmode_x": "9",
+                "wl3_auth_mode_x": "sae",
+                "wl3_crypto": "aes",
+                "wl3_mfp": "2",
+                "wl3_wep_x": "0",
+                "wl3_closed": "0",
+            }
+        )
+
+        session.get.side_effect = [
+            nband_response,
+            wireless_nvram,
+            features_response,
+            sw_mode_response,
+            band_2g_response,
+            band_5g_response,
+            band_6g_response,
+        ]
+
+        client = RouterClient(host="http://192.168.1.1", session=session)
+        result = client.get_wireless_info()
+
+        assert result.bands_count[WifiBand._2G] == 1
+        assert result.bands_count[WifiBand._5G] == 1
+        assert result.bands_count[WifiBand._6G] == 1
+
+        assert result.band_2G_info is not None
+        assert result.band_2G_info.auth_mode == WifiAuthMode.PSK2SAE
+
+        assert result.band_5G_info is not None
+        assert result.band_5G_info.mode == WifiMode.AX_ONLY
+
+        assert result.band_6G_info is not None
+        assert result.band_6G_info.ssid == "Home_6G"
+        assert result.band_6G_info.auth_mode == WifiAuthMode.SAE
