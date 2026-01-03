@@ -191,12 +191,38 @@ class Exporter:
     def _collect_metrics(self) -> None:
         """Collect metrics from all collectors.
 
+        Refreshes router info on each cycle to ensure up-to-date data
+        (uptime, port status, etc.).
+
         Raises:
             RuntimeError: If all enabled collectors failed
         """
+        # Clear the router client cache first to ensure fresh data,
+        # then refresh router info before collecting metrics.
+        client = self._container.router_client
+        client.clear_cache()
+
+        # Refresh router info each cycle to get updated uptime, port status, etc.
+        self._refresh_router_info(client)
+
         success = self._container.collect_metrics(self._router_info)
         if not success:
             raise RuntimeError("All collectors failed")
+
+    def _refresh_router_info(self, client: Any) -> None:
+        """Refresh router info for the current collection cycle.
+
+        Args:
+            client: Router client instance to use for fetching info.
+
+        Updates self._router_info with fresh data from the router.
+        Falls back to previous router_info (or FallbackRouterInfo) on error.
+        """
+        try:
+            self._router_info = client.get_info()
+        except Exception:
+            logger.warning("Failed to refresh router info, using previous values", exc_info=True)
+            # Keep existing router_info (or FallbackRouterInfo if never succeeded)
 
     def _handle_shutdown(self, signum: int, frame: Any) -> None:
         """

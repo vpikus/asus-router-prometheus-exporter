@@ -192,13 +192,144 @@ class TestExporterCollectMetrics:
         config = Config.from_env()
         container = Container(config, registry)
 
+        mock_client = MagicMock()
+        mock_info = MagicMock(product_id="RT-AX88U")
+        mock_client.get_info.return_value = mock_info
+        container.set_router_client(mock_client)
+
         exporter = Exporter(container)
-        mock_router_info = MagicMock()
-        exporter._router_info = mock_router_info
+        exporter._router_info = mock_info
 
         with patch.object(container, "collect_metrics") as mock_collect:
             exporter._collect_metrics()
-            mock_collect.assert_called_once_with(mock_router_info)
+            mock_collect.assert_called_once_with(mock_info)
+
+    def test_collect_metrics_clears_cache_first(self):
+        """Test that cache is cleared before refreshing router info."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        mock_info = MagicMock(product_id="RT-AX88U")
+        mock_client.get_info.return_value = mock_info
+        container.set_router_client(mock_client)
+
+        # Track call order to verify clear_cache is called before get_info
+        call_order = []
+
+        def record_clear_cache():
+            call_order.append("clear_cache")
+
+        def record_get_info():
+            call_order.append("get_info")
+            return mock_info
+
+        mock_client.clear_cache.side_effect = record_clear_cache
+        mock_client.get_info.side_effect = record_get_info
+
+        exporter = Exporter(container)
+        exporter._router_info = mock_info
+
+        with patch.object(container, "collect_metrics"):
+            exporter._collect_metrics()
+
+        # Verify ordering: clear_cache must be called before get_info
+        assert call_order == ["clear_cache", "get_info"], f"Expected clear_cache before get_info, got: {call_order}"
+
+    def test_collect_metrics_refreshes_router_info(self):
+        """Test that router info is refreshed on each collection cycle."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        # Return different info on each call
+        initial_info = MagicMock(product_id="RT-AX88U", uptime=100)
+        updated_info = MagicMock(product_id="RT-AX88U", uptime=200)
+        # First call returns updated_info (the refresh during _collect_metrics)
+        mock_client.get_info.return_value = updated_info
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        # Simulate that router_info was set to initial_info previously
+        exporter._router_info = initial_info
+
+        with patch.object(container, "collect_metrics") as mock_collect:
+            exporter._collect_metrics()
+
+            # Router info should be refreshed to updated_info
+            assert exporter._router_info is updated_info
+            # Container should receive the updated info
+            mock_collect.assert_called_once_with(updated_info)
+
+    def test_collect_metrics_keeps_previous_info_on_refresh_failure(self):
+        """Test that previous router info is kept if refresh fails."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        initial_info = MagicMock(product_id="RT-AX88U")
+        mock_client.get_info.side_effect = Exception("Connection failed")
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        exporter._router_info = initial_info
+
+        with patch.object(container, "collect_metrics") as mock_collect:
+            exporter._collect_metrics()
+
+            # Should still use previous info
+            assert exporter._router_info is initial_info
+            mock_collect.assert_called_once_with(initial_info)
+
+    def test_cache_cleared_exactly_once_per_cycle(self):
+        """Test that cache is cleared exactly once per collection cycle."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        mock_info = MagicMock(product_id="RT-AX88U")
+        mock_client.get_info.return_value = mock_info
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        exporter._router_info = mock_info
+
+        with patch.object(container, "collect_metrics"):
+            # Run multiple collection cycles
+            for cycle in range(3):
+                mock_client.clear_cache.reset_mock()
+                exporter._collect_metrics()
+                # Exactly one clear_cache call per cycle
+                assert mock_client.clear_cache.call_count == 1, (
+                    f"Cycle {cycle + 1}: Expected 1 clear_cache call, got {mock_client.clear_cache.call_count}"
+                )
+
+    def test_cache_cleared_even_with_no_enabled_collectors(self):
+        """Test that cache is cleared even when no collectors are enabled."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        mock_info = MagicMock(product_id="RT-AX88U")
+        mock_client.get_info.return_value = mock_info
+        container.set_router_client(mock_client)
+
+        # Container has no registered collectors (simulates all disabled)
+        container._initialized = True
+        container._collectors = []
+
+        exporter = Exporter(container)
+        exporter._router_info = mock_info
+
+        # _collect_metrics should still clear cache even with no collectors
+        exporter._collect_metrics()
+
+        mock_client.clear_cache.assert_called_once()
 
 
 class TestExporterShutdown:
