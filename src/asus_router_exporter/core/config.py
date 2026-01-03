@@ -39,6 +39,7 @@ class Config:
         ASUS_ROUTER_HOST: Router IP address or hostname (default: 192.168.1.1)
         ASUS_ROUTER_AUTH: Authentication as username:password (required)
         ASUS_ROUTER_TIMEOUT: Request timeout in seconds (default: 10)
+        ASUS_ROUTER_REAUTH_INTERVAL: Proactive re-auth interval in seconds (default: 1800 = 30min, 0 = disabled)
 
     Exporter:
         ASUS_METRICS_PORT: Metrics HTTP port (default: 8000)
@@ -260,6 +261,7 @@ class Config:
                 "host": os.getenv("ASUS_ROUTER_HOST", "192.168.1.1"),
                 "auth": os.getenv("ASUS_ROUTER_AUTH", ""),
                 "timeout": cls._env_int("ASUS_ROUTER_TIMEOUT", 10),
+                "reauth_interval": cls._env_int("ASUS_ROUTER_REAUTH_INTERVAL", 1800),
             },
             "exporter": {
                 "port": cls._env_int("ASUS_METRICS_PORT", 8000),
@@ -423,6 +425,12 @@ class Config:
         if timeout is not None:
             if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or timeout <= 0:
                 errors.append(f"router.timeout must be a positive number, got: {timeout}")
+
+        # Validate reauth_interval (non-negative, 0 = disabled)
+        reauth_interval = self.get("router.reauth_interval")
+        if reauth_interval is not None:
+            if not isinstance(reauth_interval, int) or isinstance(reauth_interval, bool) or reauth_interval < 0:
+                errors.append(f"router.reauth_interval must be a non-negative integer, got: {reauth_interval}")
 
         # Validate scrape_interval (positive)
         scrape_interval = self.get("exporter.scrape_interval")

@@ -980,6 +980,234 @@ class TestRouterClientCache:
         assert client._cache == {}
 
 
+class TestProactiveReauthentication:
+    """Tests for proactive re-authentication feature."""
+
+    def test_needs_reauthentication_disabled_when_interval_zero(self):
+        """Proactive re-auth should be disabled when interval is 0."""
+        session = MagicMock()
+        client = RouterClient(
+            host="http://192.168.1.1",
+            session=session,
+            _auth_token="token",
+            _reauth_interval_seconds=0,
+        )
+        assert client.needs_reauthentication() is False
+
+    def test_needs_reauthentication_disabled_when_no_token(self):
+        """Proactive re-auth should be disabled when no token is stored."""
+        session = MagicMock()
+        client = RouterClient(
+            host="http://192.168.1.1",
+            session=session,
+            _auth_token="",
+            _reauth_interval_seconds=1800,
+        )
+        assert client.needs_reauthentication() is False
+
+    def test_needs_reauthentication_true_when_no_auth_time(self):
+        """Should return True when auth time is not set (edge case)."""
+        session = MagicMock()
+        client = RouterClient(
+            host="http://192.168.1.1",
+            session=session,
+            _auth_token="token",
+            _reauth_interval_seconds=1800,
+            _last_auth_time=None,
+        )
+        assert client.needs_reauthentication() is True
+
+    def test_needs_reauthentication_false_when_not_elapsed(self):
+        """Should return False when interval has not elapsed."""
+        import time
+
+        session = MagicMock()
+        client = RouterClient(
+            host="http://192.168.1.1",
+            session=session,
+            _auth_token="token",
+            _reauth_interval_seconds=1800,
+            _last_auth_time=time.monotonic(),  # Just authenticated
+        )
+        assert client.needs_reauthentication() is False
+
+    def test_needs_reauthentication_true_when_elapsed(self):
+        """Should return True when interval has elapsed."""
+        import time
+
+        session = MagicMock()
+        # Auth happened 31 minutes ago, interval is 30 minutes
+        past_auth_time = time.monotonic() - (31 * 60)  # 31 minutes in seconds
+        client = RouterClient(
+            host="http://192.168.1.1",
+            session=session,
+            _auth_token="token",
+            _reauth_interval_seconds=1800,
+            _last_auth_time=past_auth_time,
+        )
+        assert client.needs_reauthentication() is True
+
+    @patch("requests.Session")
+    def test_check_and_reauthenticate_does_nothing_when_not_needed(self, mock_session_cls):
+        """check_and_reauthenticate should return False when re-auth not needed."""
+        import time
+
+        session = MagicMock()
+        client = RouterClient(
+            host="http://192.168.1.1",
+            session=session,
+            _auth_token="token",
+            _reauth_interval_seconds=1800,
+            _last_auth_time=time.monotonic(),
+        )
+
+        result = client.check_and_reauthenticate()
+
+        assert result is False
+        mock_session_cls.assert_not_called()
+
+    @patch("requests.Session")
+    def test_check_and_reauthenticate_performs_reauth_when_needed(self, mock_session_cls):
+        """check_and_reauthenticate should re-authenticate when interval elapsed."""
+        import time
+
+        old_session = MagicMock()
+        new_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"asus_token": "new_token"}'
+        new_session.post.return_value = mock_response
+        mock_session_cls.return_value = new_session
+
+        past_auth_time = time.monotonic() - (31 * 60)  # 31 minutes in seconds
+        client = RouterClient(
+            host="http://192.168.1.1",
+            session=old_session,
+            _auth_token="token",
+            _reauth_interval_seconds=1800,
+            _last_auth_time=past_auth_time,
+        )
+
+        result = client.check_and_reauthenticate()
+
+        assert result is True
+        assert client.session is new_session
+        new_session.post.assert_called_once()
+
+    @patch("requests.Session")
+    def test_reauthenticate_updates_last_auth_time(self, mock_session_cls):
+        """_reauthenticate should update _last_auth_time."""
+        import time
+
+        old_session = MagicMock()
+        new_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"asus_token": "new_token"}'
+        new_session.post.return_value = mock_response
+        mock_session_cls.return_value = new_session
+
+        old_auth_time = time.monotonic() - 3600  # 1 hour in seconds
+        client = RouterClient(
+            host="http://192.168.1.1",
+            session=old_session,
+            _auth_token="token",
+            _reauth_interval_seconds=1800,
+            _last_auth_time=old_auth_time,
+        )
+
+        client._reauthenticate()
+
+        assert client._last_auth_time is not None
+        assert client._last_auth_time > old_auth_time
+
+    @patch("asus_router_exporter.metrics.self_metrics.SelfMetrics.get_instance")
+    @patch("requests.Session")
+    def test_check_and_reauthenticate_propagates_auth_errors_without_recording_metric(
+        self, mock_session_cls, mock_get_instance
+    ):
+        """Non-recoverable auth errors should propagate and NOT record proactive_reauth metric."""
+        import time
+
+        from asus_router_exporter.core.exceptions import InvalidCredentialsError
+
+        old_session = MagicMock()
+        new_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        # Simulate invalid credentials error response
+        mock_response.text = '{"error_status": "7"}'
+        mock_response.json.return_value = {"error_status": "7"}
+        new_session.post.return_value = mock_response
+        mock_session_cls.return_value = new_session
+
+        mock_metrics = MagicMock()
+        mock_get_instance.return_value = mock_metrics
+
+        past_auth_time = time.monotonic() - (31 * 60)  # 31 minutes in seconds
+        client = RouterClient(
+            host="http://192.168.1.1",
+            session=old_session,
+            _auth_token="token",
+            _reauth_interval_seconds=1800,
+            _last_auth_time=past_auth_time,
+        )
+
+        # Should raise InvalidCredentialsError and NOT call record_proactive_reauth
+        with pytest.raises(InvalidCredentialsError):
+            client.check_and_reauthenticate()
+
+        # Verify record_proactive_reauth was NOT called since re-auth failed
+        mock_metrics.record_proactive_reauth.assert_not_called()
+
+    def test_factory_sets_reauth_interval(self):
+        """Factory should accept and use reauth_interval."""
+        from asus_router_exporter.client.factory import DEFAULT_REAUTH_INTERVAL
+
+        factory = RouterClientFactory("192.168.1.1")
+        assert factory.reauth_interval == DEFAULT_REAUTH_INTERVAL
+
+        factory_custom = RouterClientFactory("192.168.1.1", reauth_interval=3600)
+        assert factory_custom.reauth_interval == 3600
+
+    def test_factory_rejects_negative_reauth_interval(self):
+        """Factory should raise ValueError for negative reauth_interval."""
+        with pytest.raises(ValueError, match="reauth_interval must be non-negative"):
+            RouterClientFactory("192.168.1.1", reauth_interval=-1)
+
+    @patch("requests.Session")
+    def test_factory_creates_client_with_reauth_interval(self, mock_session_cls):
+        """Factory.auth should create client with configured reauth_interval."""
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"asus_token": "token123"}'
+        mock_session.post.return_value = mock_response
+        mock_session_cls.return_value = mock_session
+
+        factory = RouterClientFactory("192.168.1.1", reauth_interval=3600)
+        client = factory.auth("admin:password")
+
+        assert client._reauth_interval_seconds == 3600
+        assert client._last_auth_time is not None
+
+    @patch("requests.Session")
+    def test_factory_creates_client_with_zero_interval_disables_proactive_reauth(self, mock_session_cls):
+        """Creating client with reauth_interval=0 should disable proactive re-auth."""
+        mock_session = MagicMock()
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = '{"asus_token": "token123"}'
+        mock_session.post.return_value = mock_response
+        mock_session_cls.return_value = mock_session
+
+        factory = RouterClientFactory("192.168.1.1", reauth_interval=0)
+        client = factory.auth("admin:password")
+
+        assert client._reauth_interval_seconds == 0
+        assert client.needs_reauthentication() is False
+
+
 class TestRouterClientIntegration:
     """Integration tests for RouterClient."""
 

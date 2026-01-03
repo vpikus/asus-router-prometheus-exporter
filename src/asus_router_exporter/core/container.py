@@ -380,8 +380,9 @@ class Container:
 
         host = self._config.get("router.host", "192.168.1.1")
         auth = self._config.get("router.auth", "")
+        reauth_interval = self._config.get("router.reauth_interval", 1800)
 
-        factory = RouterClientFactory(host)
+        factory = RouterClientFactory(host, reauth_interval=reauth_interval)
         return factory.auth(auth)  # type: ignore[return-value]
 
     def get_enabled_collectors(self) -> list[str]:

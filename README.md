@@ -6,6 +6,7 @@ A Prometheus exporter for ASUS routers that collects and exposes metrics about r
 
 - **Comprehensive metrics**: CPU, memory, temperature, network throughput, WAN status, wireless info, connected clients, port status
 - **Auto re-authentication**: Automatically re-authenticates when router session expires
+- **Proactive re-authentication**: Configurable interval (default 30min) to re-authenticate before session expires, preventing connection issues during long-running operations
 - **Error resilience**: Circuit breaker and retry mechanisms for fault tolerance
 - **Stale metric protection**: Automatically clears metrics on collection failure to prevent stale data
 - **Modular architecture**: Enable/disable specific collectors via configuration
@@ -117,6 +118,7 @@ All configuration options can be set via environment variables, YAML config file
 | `ASUS_ROUTER_HOST` | Router IP address or hostname | `192.168.1.1` |
 | `ASUS_ROUTER_AUTH` | Authentication (`username:password`) | Required |
 | `ASUS_ROUTER_TIMEOUT` | Request timeout in seconds | `10` |
+| `ASUS_ROUTER_REAUTH_INTERVAL` | Proactive re-auth interval in seconds (0 = disabled) | `1800` |
 
 #### Exporter Settings
 
@@ -169,6 +171,7 @@ router:
   host: ${ASUS_ROUTER_HOST:192.168.1.1}
   auth: ${ASUS_ROUTER_AUTH}
   timeout: 10
+  reauth_interval: 1800  # Proactive re-auth interval (0 = disabled)
 
 exporter:
   port: 8000
@@ -227,6 +230,11 @@ These metrics provide visibility into the exporter's internal behavior for obser
 |--------|------|-------------|
 | `asus_router_exporter_retry_attempts_total` | Counter | Total retry attempts (excludes initial attempt) |
 | `asus_router_exporter_retries_exhausted_total` | Counter | Times all retries were exhausted |
+
+#### Authentication
+| Metric | Type | Description |
+|--------|------|-------------|
+| `asus_router_exporter_proactive_reauth_total` | Counter | Total proactive re-authentications performed |
 
 #### Cache Performance
 | Metric | Type | Labels | Description |

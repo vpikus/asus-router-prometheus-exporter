@@ -202,6 +202,11 @@ class Exporter:
         client = self._container.router_client
         client.clear_cache()
 
+        # Check for proactive re-authentication before making API calls.
+        # This prevents session expiry during long-running operations.
+        # Return value (whether re-auth happened) is not needed for the flow.
+        client.check_and_reauthenticate()
+
         # Refresh router info each cycle to get updated uptime, port status, etc.
         self._refresh_router_info(client)
 

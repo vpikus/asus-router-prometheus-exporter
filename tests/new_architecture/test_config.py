@@ -290,6 +290,24 @@ class TestConfigEnvOverrides:
             assert config.get("router.auth") == "admin:secret"
             assert config.get("router.timeout") == 30
 
+    def test_reauth_interval_config_from_env(self):
+        """Test that reauth_interval can be configured via environment variable."""
+        with patch.dict(os.environ, {"ASUS_ROUTER_REAUTH_INTERVAL": "3600"}):
+            config = Config.from_env()
+            assert config.get("router.reauth_interval") == 3600
+
+    def test_reauth_interval_default(self):
+        """Test that reauth_interval defaults to 1800 (30 minutes)."""
+        os.environ.pop("ASUS_ROUTER_REAUTH_INTERVAL", None)
+        config = Config.from_env()
+        assert config.get("router.reauth_interval") == 1800
+
+    def test_reauth_interval_disabled_with_zero(self):
+        """Test that reauth_interval can be set to 0 to disable proactive re-auth."""
+        with patch.dict(os.environ, {"ASUS_ROUTER_REAUTH_INTERVAL": "0"}):
+            config = Config.from_env()
+            assert config.get("router.reauth_interval") == 0
+
     def test_exporter_config_from_env(self):
         with patch.dict(
             os.environ,
@@ -403,6 +421,36 @@ class TestConfigValidation:
         """Test that zero timeout raises ConfigurationError."""
         with pytest.raises(ConfigurationError, match="router.timeout must be a positive number"):
             Config({"router": {"timeout": 0}})
+
+    def test_invalid_reauth_interval_negative(self):
+        """Test that negative reauth_interval raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="router.reauth_interval must be a non-negative integer"):
+            Config({"router": {"reauth_interval": -1}})
+
+    def test_invalid_reauth_interval_string(self):
+        """Test that string reauth_interval raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="router.reauth_interval must be a non-negative integer"):
+            Config({"router": {"reauth_interval": "1800"}})
+
+    def test_invalid_reauth_interval_boolean(self):
+        """Test that boolean reauth_interval raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="router.reauth_interval must be a non-negative integer"):
+            Config({"router": {"reauth_interval": True}})
+
+    def test_invalid_reauth_interval_float(self):
+        """Test that float reauth_interval raises ConfigurationError."""
+        with pytest.raises(ConfigurationError, match="router.reauth_interval must be a non-negative integer"):
+            Config({"router": {"reauth_interval": 1800.5}})
+
+    def test_valid_reauth_interval_zero(self):
+        """Test that zero reauth_interval is valid (disabled)."""
+        config = Config({"router": {"reauth_interval": 0}})
+        assert config.get("router.reauth_interval") == 0
+
+    def test_valid_reauth_interval_positive(self):
+        """Test that positive reauth_interval is valid."""
+        config = Config({"router": {"reauth_interval": 3600}})
+        assert config.get("router.reauth_interval") == 3600
 
     def test_invalid_scrape_interval_negative(self):
         """Test that negative scrape_interval raises ConfigurationError."""

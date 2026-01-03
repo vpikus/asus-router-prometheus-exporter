@@ -118,12 +118,13 @@ src/asus_router_exporter/
 
 5. **Router Client** (`client/`)
    - `router_client.py`: HTTP client with auto re-authentication on session expiry
-   - `factory.py`: `RouterClientFactory` for creating authenticated client instances
+   - `factory.py`: `RouterClientFactory` for creating authenticated client instances with `authenticate_session()` helper
    - `decorators.py`: `@track_api` decorator for API call performance instrumentation
    - `models/`: Domain-organized data models (system, network, wan, wireless, ports, clients, router)
    - urllib3 retries disabled to allow application-level retry control
    - Smart authentication error handling to prevent account lockout
    - Cache hit/miss tracking for per-cycle caching
+   - **Proactive re-authentication**: Configurable interval (default 30min) to re-authenticate before session expires, using monotonic time to avoid clock skew issues
 
 6. **Self-Metrics** (`metrics/self_metrics.py`)
    - Thread-safe singleton `SelfMetrics` for exporter observability
@@ -186,6 +187,7 @@ class CPUCollector(BaseCollector):
 ### Environment Variables (both v1 and v2)
 - `ASUS_ROUTER_HOST`: Router IP address
 - `ASUS_ROUTER_AUTH`: Authentication token (base64)
+- `ASUS_ROUTER_REAUTH_INTERVAL`: Proactive re-authentication interval in seconds (default: 1800 = 30min, 0 = disabled)
 - `ASUS_METRICS_PORT`: Metrics HTTP port (default: 8000)
 - `ASUS_SCRAPE_INTERVAL`: Collection interval in seconds (default: 30)
 - `ASUS_LOG_LEVEL`: Log level (DEBUG, INFO, WARNING, ERROR)
@@ -196,6 +198,7 @@ router:
   host: ${ASUS_ROUTER_HOST:192.168.1.1}
   auth: ${ASUS_ROUTER_AUTH}
   timeout: 10
+  reauth_interval: 1800  # Proactive re-auth interval (0 = disabled)
 
 exporter:
   port: 8000
@@ -281,6 +284,9 @@ The exporter exposes internal metrics about its own health and performance:
 ### Retry Metrics
 - `asus_router_exporter_retry_attempts_total`: Total retry attempts (excludes initial)
 - `asus_router_exporter_retries_exhausted_total`: Times all retries were exhausted
+
+### Authentication Metrics
+- `asus_router_exporter_proactive_reauth_total`: Total number of proactive re-authentications
 
 ### API Performance Metrics
 - `asus_router_exporter_api_requests_total{method}`: API call counts by method
