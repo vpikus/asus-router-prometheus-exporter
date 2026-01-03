@@ -246,12 +246,10 @@ class Container:
         Note:
             When a connection error is detected, remaining collectors are skipped
             to avoid redundant failed attempts.
-        """
-        # Clear router client cache at the start of each collection cycle
-        # to ensure fresh data while avoiding duplicate API calls within the cycle
-        if self._router_client is not None:
-            self._router_client.clear_cache()
 
+            Cache clearing is the caller's responsibility. The Exporter clears
+            the cache before refreshing router info to ensure fresh data.
+        """
         enabled_collectors = [c for c in self._collectors if c.enabled]
         if not enabled_collectors:
             return True  # Nothing to collect, nothing failed
