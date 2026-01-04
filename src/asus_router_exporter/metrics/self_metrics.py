@@ -92,6 +92,7 @@ class SelfMetrics:
             self._retry_attempts,
             self._retries_exhausted,
             self._proactive_reauth,
+            self._node_switches,
             self._cache_hits,
             self._cache_misses,
             self._collector_success,
@@ -148,6 +149,14 @@ class SelfMetrics:
         self._proactive_reauth = Counter(
             "asus_router_exporter_proactive_reauth_total",
             "Total number of proactive re-authentications",
+            registry=self._registry,
+        )
+
+        # AiMesh node switch metrics
+        self._node_switches = Counter(
+            "asus_router_exporter_node_switches_total",
+            "Total number of AiMesh node switches detected",
+            ["from_product_id", "to_product_id"],
             registry=self._registry,
         )
 
@@ -245,6 +254,23 @@ class SelfMetrics:
     def record_proactive_reauth(self) -> None:
         """Record a proactive re-authentication event."""
         self._proactive_reauth.inc()
+
+    # -------------------------------------------------------------------------
+    # AiMesh node switch recording methods
+    # -------------------------------------------------------------------------
+
+    def record_node_switch(self, from_product_id: str, to_product_id: str) -> None:
+        """
+        Record an AiMesh node switch event.
+
+        Args:
+            from_product_id: The product_id of the previous node.
+            to_product_id: The product_id of the new node.
+        """
+        self._node_switches.labels(
+            from_product_id=from_product_id,
+            to_product_id=to_product_id,
+        ).inc()
 
     # -------------------------------------------------------------------------
     # Cache recording methods

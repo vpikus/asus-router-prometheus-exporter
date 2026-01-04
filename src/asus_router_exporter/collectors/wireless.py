@@ -245,6 +245,15 @@ class WirelessCollector(BaseCollector):
 
             logger.debug("[%s] Removed stale metrics for wireless band %s", product_id, wl_unit)
 
+    def reset_state(self) -> None:
+        """Reset internal state on node switch.
+
+        Clears active band tracking to prevent stale band detection
+        issues when switching between AiMesh nodes.
+        """
+        self._active_bands.clear()
+        logger.debug("[%s] Wireless collector state reset", self.name)
+
     def cleanup(self) -> None:
         """Clean up collector and reset state."""
         super().cleanup()

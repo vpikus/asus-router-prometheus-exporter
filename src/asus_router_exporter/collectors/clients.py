@@ -393,6 +393,15 @@ class ClientsCollector(LabeledMetricsMixin, BaseCollector):
             if current_value is not None:
                 gauge.labels(**labels, **{label_name: str(current_value)}).set(1)
 
+    def reset_state(self) -> None:
+        """Reset internal state on node switch.
+
+        Clears active labels tracking to prevent stale label detection
+        issues when switching between AiMesh nodes.
+        """
+        self._active_labels.clear()
+        logger.debug("[%s] Clients collector state reset", self.name)
+
     def cleanup(self) -> None:
         """Clean up collector and reset state."""
         super().cleanup()

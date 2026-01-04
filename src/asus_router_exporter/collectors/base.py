@@ -112,6 +112,19 @@ class BaseCollector(ABC):
         self.clear_metrics()
         logger.debug("Collector '%s' cleaned up", self.name)
 
+    def reset_state(self) -> None:  # noqa: B027
+        """
+        Reset internal collector state.
+
+        Called when an AiMesh node switch is detected to reset any internal
+        state that might cause incorrect calculations when switching between
+        nodes (e.g., _previous_samples for delta calculations, _active_* sets
+        for stale metric tracking).
+
+        Subclasses should override this if they maintain internal state.
+        The base implementation does nothing as most collectors are stateless.
+        """
+
     def clear_metrics(self) -> None:
         """
         Clear all metrics to prevent stale data.

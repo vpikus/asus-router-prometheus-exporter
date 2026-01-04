@@ -343,6 +343,23 @@ class Container:
             except Exception:
                 logger.warning("Failed to clear metrics for %s", collector.name, exc_info=True)
 
+    def reset_all_collector_state(self) -> None:
+        """Reset internal state of all collectors.
+
+        Called during AiMesh node switches to reset collector state
+        (e.g., _previous_samples for delta calculations) that could
+        cause incorrect metric values when switching between nodes.
+
+        This is separate from clear_all_metrics() because during normal
+        error recovery, we may want to preserve state for accurate
+        calculations when the router becomes available again.
+        """
+        for collector in self._collectors:
+            try:
+                collector.reset_state()
+            except Exception:
+                logger.warning("Failed to reset state for %s", collector.name, exc_info=True)
+
     def cleanup(self) -> None:
         """Clean up all collectors and resources."""
         for collector in self._collectors:

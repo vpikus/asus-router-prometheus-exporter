@@ -840,3 +840,52 @@ class TestIsConnectionError:
 
         # Should return False without hanging
         assert container._is_connection_error(e1) is False
+
+
+class TestContainerResetAllCollectorState:
+    """Tests for Container.reset_all_collector_state method."""
+
+    def test_reset_all_collector_state_calls_reset_on_all_collectors(self):
+        """Test that reset_all_collector_state calls reset_state on all collectors."""
+        config = Config.from_env()
+        container = Container(config)
+
+        mock_collector1 = MagicMock()
+        mock_collector1.name = "collector1"
+        mock_collector2 = MagicMock()
+        mock_collector2.name = "collector2"
+        container._collectors = [mock_collector1, mock_collector2]
+
+        container.reset_all_collector_state()
+
+        mock_collector1.reset_state.assert_called_once()
+        mock_collector2.reset_state.assert_called_once()
+
+    def test_reset_all_collector_state_handles_exceptions(self):
+        """Test that reset_all_collector_state continues on exception."""
+        config = Config.from_env()
+        container = Container(config)
+
+        mock_collector1 = MagicMock()
+        mock_collector1.name = "collector1"
+        mock_collector1.reset_state.side_effect = RuntimeError("Reset failed")
+
+        mock_collector2 = MagicMock()
+        mock_collector2.name = "collector2"
+
+        container._collectors = [mock_collector1, mock_collector2]
+
+        # Should not raise, and should continue to second collector
+        container.reset_all_collector_state()
+
+        mock_collector1.reset_state.assert_called_once()
+        mock_collector2.reset_state.assert_called_once()
+
+    def test_reset_all_collector_state_empty_collectors(self):
+        """Test that reset_all_collector_state handles empty collectors list."""
+        config = Config.from_env()
+        container = Container(config)
+        container._collectors = []
+
+        # Should not raise
+        container.reset_all_collector_state()

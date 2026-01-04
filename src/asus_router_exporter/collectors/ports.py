@@ -193,6 +193,15 @@ class PortsCollector(BaseCollector):
 
             logger.debug("[%s] Removed stale metrics for port %s", product_id, port_id)
 
+    def reset_state(self) -> None:
+        """Reset internal state on node switch.
+
+        Clears active port tracking to prevent stale port detection
+        issues when switching between AiMesh nodes.
+        """
+        self._active_port_ids.clear()
+        logger.debug("[%s] Ports collector state reset", self.name)
+
     def cleanup(self) -> None:
         """Clean up collector and reset state."""
         super().cleanup()

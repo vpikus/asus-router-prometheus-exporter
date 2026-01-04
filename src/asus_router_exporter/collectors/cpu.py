@@ -179,6 +179,15 @@ class CPUCollector(BaseCollector):
         logger.debug("Counter wrap detected: current=%d < previous=%d, skipping", current, previous)
         return 0
 
+    def reset_state(self) -> None:
+        """Reset internal state on node switch.
+
+        Clears previous samples to prevent incorrect delta calculations
+        when switching between AiMesh nodes with different CPU counters.
+        """
+        self._previous_samples.clear()
+        logger.debug("[%s] CPU collector state reset", self.name)
+
     def cleanup(self) -> None:
         """Clean up collector and reset state."""
         super().cleanup()
