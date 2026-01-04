@@ -225,7 +225,7 @@ class TestContainerRouterClient:
         client = container.router_client
 
         assert client is mock_client
-        mock_factory_cls.assert_called_once_with("10.0.0.1", reauth_interval=1800)
+        mock_factory_cls.assert_called_once_with("10.0.0.1", reauth_interval=0)
         mock_factory.auth.assert_called_once_with("admin:pass")
 
     @patch("asus_router_exporter.client.RouterClientFactory")

@@ -124,7 +124,7 @@ src/asus_router_exporter/
    - urllib3 retries disabled to allow application-level retry control
    - Smart authentication error handling to prevent account lockout
    - Cache hit/miss tracking for per-cycle caching
-   - **Proactive re-authentication**: Configurable interval (default 30min) to re-authenticate before session expires, using monotonic time to avoid clock skew issues
+   - **Proactive re-authentication**: Configurable interval to re-authenticate before session expires, using monotonic time to avoid clock skew issues (disabled by default)
 
 6. **Self-Metrics** (`metrics/self_metrics.py`)
    - Thread-safe singleton `SelfMetrics` for exporter observability
@@ -196,7 +196,7 @@ class CPUCollector(BaseCollector):
 ### Environment Variables (both v1 and v2)
 - `ASUS_ROUTER_HOST`: Router IP address
 - `ASUS_ROUTER_AUTH`: Authentication token (base64)
-- `ASUS_ROUTER_REAUTH_INTERVAL`: Proactive re-authentication interval in seconds (default: 1800 = 30min, 0 = disabled)
+- `ASUS_ROUTER_REAUTH_INTERVAL`: Proactive re-authentication interval in seconds (default: 0 = disabled)
 - `ASUS_METRICS_PORT`: Metrics HTTP port (default: 8000)
 - `ASUS_SCRAPE_INTERVAL`: Collection interval in seconds (default: 30)
 - `ASUS_LOG_LEVEL`: Log level (DEBUG, INFO, WARNING, ERROR)
@@ -207,7 +207,7 @@ router:
   host: ${ASUS_ROUTER_HOST:192.168.1.1}
   auth: ${ASUS_ROUTER_AUTH}
   timeout: 10
-  reauth_interval: 1800  # Proactive re-auth interval (0 = disabled)
+  reauth_interval: 0  # Proactive re-auth interval in seconds (0 = disabled)
 
 exporter:
   port: 8000
