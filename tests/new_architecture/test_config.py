@@ -297,10 +297,10 @@ class TestConfigEnvOverrides:
             assert config.get("router.reauth_interval") == 3600
 
     def test_reauth_interval_default(self):
-        """Test that reauth_interval defaults to 1800 (30 minutes)."""
+        """Test that reauth_interval defaults to 0 (disabled)."""
         os.environ.pop("ASUS_ROUTER_REAUTH_INTERVAL", None)
         config = Config.from_env()
-        assert config.get("router.reauth_interval") == 1800
+        assert config.get("router.reauth_interval") == 0
 
     def test_reauth_interval_disabled_with_zero(self):
         """Test that reauth_interval can be set to 0 to disable proactive re-auth."""

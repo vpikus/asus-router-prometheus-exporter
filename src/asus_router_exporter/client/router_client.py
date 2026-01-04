@@ -135,7 +135,7 @@ class RouterClient:
     Proactive Re-authentication:
         To prevent session expiry during long-running operation, the client can
         proactively re-authenticate before the session expires. Configure via
-        `reauth_interval_seconds` (default: 1800 = 30 minutes, 0 = disabled).
+        `reauth_interval_seconds` (default: 0 = disabled, set to e.g. 1800 for 30 minutes).
         Call `check_and_reauthenticate()` at the start of each collection cycle.
     """
 
@@ -144,7 +144,7 @@ class RouterClient:
     _auth_token: str = ""
     _cache: dict[str, Any] = field(default_factory=dict)
     _last_auth_time: float | None = field(default=None)  # monotonic time of last auth
-    _reauth_interval_seconds: int = field(default=1800)
+    _reauth_interval_seconds: int = field(default=0)
 
     def close(self) -> None:
         """Close the underlying session and release resources."""

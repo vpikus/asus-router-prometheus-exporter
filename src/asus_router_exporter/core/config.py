@@ -39,7 +39,7 @@ class Config:
         ASUS_ROUTER_HOST: Router IP address or hostname (default: 192.168.1.1)
         ASUS_ROUTER_AUTH: Authentication as username:password (required)
         ASUS_ROUTER_TIMEOUT: Request timeout in seconds (default: 10)
-        ASUS_ROUTER_REAUTH_INTERVAL: Proactive re-auth interval in seconds (default: 1800 = 30min, 0 = disabled)
+        ASUS_ROUTER_REAUTH_INTERVAL: Proactive re-auth interval in seconds (default: 0 = disabled)
 
     Exporter:
         ASUS_METRICS_PORT: Metrics HTTP port (default: 8000)
@@ -261,7 +261,7 @@ class Config:
                 "host": os.getenv("ASUS_ROUTER_HOST", "192.168.1.1"),
                 "auth": os.getenv("ASUS_ROUTER_AUTH", ""),
                 "timeout": cls._env_int("ASUS_ROUTER_TIMEOUT", 10),
-                "reauth_interval": cls._env_int("ASUS_ROUTER_REAUTH_INTERVAL", 1800),
+                "reauth_interval": cls._env_int("ASUS_ROUTER_REAUTH_INTERVAL", 0),
             },
             "exporter": {
                 "port": cls._env_int("ASUS_METRICS_PORT", 8000),
