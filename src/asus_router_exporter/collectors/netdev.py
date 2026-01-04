@@ -353,6 +353,18 @@ class NetdevCollector(BaseCollector):
                 pass  # Label combination doesn't exist
             logger.debug("[%s] Removed stale metrics for interface %s", product_id, iface_id)
 
+    def reset_state(self) -> None:
+        """Reset internal state on node switch.
+
+        Clears previous samples and active interface tracking to prevent
+        incorrect delta calculations and stale interface detection when
+        switching between AiMesh nodes.
+        """
+        self._previous_samples.clear()
+        self._active_internet_ids.clear()
+        self._active_wireless_ids.clear()
+        logger.debug("[%s] Netdev collector state reset", self.name)
+
     def cleanup(self) -> None:
         """
         Clean up collector and reset state.

@@ -133,8 +133,17 @@ src/asus_router_exporter/
    - Cache hit/miss counters per cache key
    - Per-collector success/error rates and duration
    - Per-API method performance histograms
+   - AiMesh node switch tracking
 
-7. **Authentication Exceptions** (`core/exceptions.py`)
+7. **AiMesh Node Switch Detection** (`server/exporter.py`)
+   - Detects when exporter connects to a different AiMesh node (via `product_id` change)
+   - Automatically clears all stale metrics from the previous node
+   - Resets collector internal state (e.g., `_previous_samples` for delta calculations)
+   - Removes stale `product_id` labels from exporter's own metrics (`asus_router_up`, `asus_router_scrape_duration_seconds`)
+   - Records node switch events via `asus_router_exporter_node_switches_total` metric
+   - **Use case**: When main router restarts in AiMesh setup, exporter may temporarily connect to a repeater node; when main router returns, metrics are properly cleaned up
+
+8. **Authentication Exceptions** (`core/exceptions.py`)
    Router returns `error_status` codes that map to specific exceptions:
    - `SessionExpiredError` (error_status 1-2): Recoverable, triggers re-auth
    - `InvalidCredentialsError` (error_status 3, 7): NOT recoverable, no retry
@@ -287,6 +296,9 @@ The exporter exposes internal metrics about its own health and performance:
 
 ### Authentication Metrics
 - `asus_router_exporter_proactive_reauth_total`: Total number of proactive re-authentications
+
+### AiMesh Node Switch Metrics
+- `asus_router_exporter_node_switches_total{from_product_id, to_product_id}`: Total number of AiMesh node switches detected
 
 ### API Performance Metrics
 - `asus_router_exporter_api_requests_total{method}`: API call counts by method

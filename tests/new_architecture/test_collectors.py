@@ -249,6 +249,18 @@ class TestCPUCollector:
 
         assert collector._previous_samples == {}
 
+    def test_reset_state_clears_previous_samples(self):
+        """Test that reset_state clears previous samples for node switch handling."""
+        collector = CPUCollector(self.registry, self.config)
+        collector._previous_samples = {
+            "RT-AX88U:0": {"usage": 100, "total": 1000},
+            "RT-AX88U:1": {"usage": 200, "total": 2000},
+        }
+
+        collector.reset_state()
+
+        assert collector._previous_samples == {}
+
     def test_calculate_delta_normal(self):
         assert CPUCollector._calculate_delta(100, 50) == 50
 

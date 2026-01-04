@@ -425,3 +425,46 @@ class TestCircuitBreakerStateValue:
         assert int(CircuitBreakerStateValue.CLOSED) == 0
         assert int(CircuitBreakerStateValue.OPEN) == 1
         assert int(CircuitBreakerStateValue.HALF_OPEN) == 2
+
+
+class TestSelfMetricsNodeSwitch:
+    """Tests for node switch metrics."""
+
+    def setup_method(self) -> None:
+        """Reset singleton before each test."""
+        SelfMetrics.reset_instance()
+        self.registry = CollectorRegistry()
+        self.metrics = SelfMetrics.get_instance(self.registry)
+
+    def teardown_method(self) -> None:
+        """Reset singleton after each test."""
+        SelfMetrics.reset_instance()
+
+    def test_record_node_switch(self) -> None:
+        """Test recording a node switch event."""
+        self.metrics.record_node_switch("RT-AX88U", "RT-AX86U")
+
+        value = self.registry.get_sample_value(
+            "asus_router_exporter_node_switches_total",
+            {"from_product_id": "RT-AX88U", "to_product_id": "RT-AX86U"},
+        )
+        assert value == 1
+
+    def test_record_multiple_node_switches(self) -> None:
+        """Test recording multiple node switch events."""
+        self.metrics.record_node_switch("RT-AX88U", "RT-AX86U")
+        self.metrics.record_node_switch("RT-AX86U", "RT-AX88U")
+        self.metrics.record_node_switch("RT-AX88U", "RT-AX86U")
+
+        # Check counts for each transition
+        value1 = self.registry.get_sample_value(
+            "asus_router_exporter_node_switches_total",
+            {"from_product_id": "RT-AX88U", "to_product_id": "RT-AX86U"},
+        )
+        value2 = self.registry.get_sample_value(
+            "asus_router_exporter_node_switches_total",
+            {"from_product_id": "RT-AX86U", "to_product_id": "RT-AX88U"},
+        )
+
+        assert value1 == 2  # Two switches from AX88U to AX86U
+        assert value2 == 1  # One switch from AX86U to AX88U

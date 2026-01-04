@@ -541,3 +541,283 @@ class TestExporterIntegration:
         with patch.object(container, "collect_metrics") as mock_collect:
             exporter._collect_metrics()
             mock_collect.assert_called_once_with(mock_info)
+
+
+class TestNodeSwitchDetection:
+    """Tests for AiMesh node switch detection."""
+
+    def test_refresh_router_info_detects_node_switch(self):
+        """Test that node switch is detected when product_id changes."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        old_info = MagicMock(product_id="RT-AX88U")
+        new_info = MagicMock(product_id="RT-AX86U")
+        mock_client.get_info.return_value = new_info
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        exporter._router_info = old_info
+        exporter._previous_product_id = "RT-AX88U"
+
+        with patch.object(exporter, "_handle_node_switch") as mock_handle:
+            exporter._refresh_router_info(mock_client)
+
+            mock_handle.assert_called_once_with("RT-AX88U", "RT-AX86U")
+
+    def test_refresh_router_info_no_switch_same_product_id(self):
+        """Test that no switch is detected when product_id remains the same."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        old_info = MagicMock(product_id="RT-AX88U")
+        new_info = MagicMock(product_id="RT-AX88U")
+        mock_client.get_info.return_value = new_info
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        exporter._router_info = old_info
+        exporter._previous_product_id = "RT-AX88U"
+
+        with patch.object(exporter, "_handle_node_switch") as mock_handle:
+            exporter._refresh_router_info(mock_client)
+
+            mock_handle.assert_not_called()
+
+    def test_refresh_router_info_no_switch_on_first_call(self):
+        """Test that no switch is detected on first call (no previous product_id)."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        new_info = MagicMock(product_id="RT-AX88U")
+        mock_client.get_info.return_value = new_info
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        exporter._previous_product_id = None  # First call
+
+        with patch.object(exporter, "_handle_node_switch") as mock_handle:
+            exporter._refresh_router_info(mock_client)
+
+            mock_handle.assert_not_called()
+
+    def test_handle_node_switch_clears_all_metrics(self):
+        """Test that node switch clears all collector metrics."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        exporter = Exporter(container)
+
+        with (
+            patch.object(container, "clear_all_metrics") as mock_clear,
+            patch.object(container, "reset_all_collector_state"),
+            patch.object(exporter, "_clear_stale_product_id_labels"),
+            patch("asus_router_exporter.server.exporter.SelfMetrics") as mock_metrics_cls,
+        ):
+            mock_metrics = MagicMock()
+            mock_metrics_cls.get_instance.return_value = mock_metrics
+
+            exporter._handle_node_switch("RT-AX88U", "RT-AX86U")
+
+            mock_clear.assert_called_once()
+
+    def test_handle_node_switch_resets_collector_state(self):
+        """Test that node switch resets all collector internal state."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        exporter = Exporter(container)
+
+        with (
+            patch.object(container, "clear_all_metrics"),
+            patch.object(container, "reset_all_collector_state") as mock_reset,
+            patch.object(exporter, "_clear_stale_product_id_labels"),
+            patch("asus_router_exporter.server.exporter.SelfMetrics") as mock_metrics_cls,
+        ):
+            mock_metrics = MagicMock()
+            mock_metrics_cls.get_instance.return_value = mock_metrics
+
+            exporter._handle_node_switch("RT-AX88U", "RT-AX86U")
+
+            mock_reset.assert_called_once()
+
+    def test_handle_node_switch_clears_stale_labels(self):
+        """Test that node switch clears stale product_id labels from exporter metrics."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        exporter = Exporter(container)
+
+        with (
+            patch.object(container, "clear_all_metrics"),
+            patch.object(container, "reset_all_collector_state"),
+            patch.object(exporter, "_clear_stale_product_id_labels") as mock_clear_labels,
+            patch("asus_router_exporter.server.exporter.SelfMetrics") as mock_metrics_cls,
+        ):
+            mock_metrics = MagicMock()
+            mock_metrics_cls.get_instance.return_value = mock_metrics
+
+            exporter._handle_node_switch("RT-AX88U", "RT-AX86U")
+
+            mock_clear_labels.assert_called_once_with("RT-AX88U")
+
+    def test_handle_node_switch_records_metric(self):
+        """Test that node switch records a self-metric."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        exporter = Exporter(container)
+
+        with (
+            patch.object(container, "clear_all_metrics"),
+            patch.object(container, "reset_all_collector_state"),
+            patch.object(exporter, "_clear_stale_product_id_labels"),
+            patch("asus_router_exporter.server.exporter.SelfMetrics") as mock_metrics_cls,
+        ):
+            mock_metrics = MagicMock()
+            mock_metrics_cls.get_instance.return_value = mock_metrics
+
+            exporter._handle_node_switch("RT-AX88U", "RT-AX86U")
+
+            mock_metrics.record_node_switch.assert_called_once_with("RT-AX88U", "RT-AX86U")
+
+    def test_clear_stale_product_id_labels_removes_up_metric(self):
+        """Test that stale product_id label is removed from up metric."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        exporter = Exporter(container)
+        # Set the metric with the old product_id
+        exporter._up.labels(product_id="RT-AX88U").set(1)
+
+        exporter._clear_stale_product_id_labels("RT-AX88U")
+
+        # The label should be removed (accessing it would recreate it with default)
+        assert ("RT-AX88U",) not in exporter._up._metrics
+
+    def test_clear_stale_product_id_labels_removes_scrape_duration_metric(self):
+        """Test that stale product_id label is removed from scrape_duration metric."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        exporter = Exporter(container)
+        # Set the metric with the old product_id
+        exporter._scrape_duration.labels(product_id="RT-AX88U").set(0.5)
+
+        exporter._clear_stale_product_id_labels("RT-AX88U")
+
+        # The label should be removed
+        assert ("RT-AX88U",) not in exporter._scrape_duration._metrics
+
+    def test_clear_stale_product_id_labels_handles_nonexistent_label(self):
+        """Test that clearing nonexistent label does not raise exception."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        exporter = Exporter(container)
+
+        # Should not raise exception
+        exporter._clear_stale_product_id_labels("NONEXISTENT")
+
+    def test_collect_router_info_sets_previous_product_id(self):
+        """Test that initial router info collection sets previous_product_id."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        mock_info = MagicMock(product_id="RT-AX88U")
+        mock_client.get_info.return_value = mock_info
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        assert exporter._previous_product_id is None
+
+        exporter._collect_router_info()
+
+        assert exporter._previous_product_id == "RT-AX88U"
+
+    def test_collect_router_info_sets_unknown_on_failure(self):
+        """Test that failed initial router info collection sets previous_product_id to unknown."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        mock_client.get_info.side_effect = Exception("Connection failed")
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        exporter._collect_router_info()
+
+        assert exporter._previous_product_id == "unknown"
+
+    def test_refresh_router_info_updates_previous_product_id(self):
+        """Test that refresh updates previous_product_id."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+
+        mock_client = MagicMock()
+        new_info = MagicMock(product_id="RT-AX86U")
+        mock_client.get_info.return_value = new_info
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        exporter._previous_product_id = "RT-AX88U"
+
+        with patch.object(exporter, "_handle_node_switch"):
+            exporter._refresh_router_info(mock_client)
+
+        assert exporter._previous_product_id == "RT-AX86U"
+
+    def test_node_switch_full_flow(self):
+        """Integration test for complete node switch handling flow."""
+        registry = CollectorRegistry()
+        config = Config.from_env()
+        container = Container(config, registry)
+        container._initialized = True
+
+        mock_client = MagicMock()
+        old_info = MagicMock(product_id="RT-AX88U-Main")
+        new_info = MagicMock(product_id="RT-AX86U-Repeater")
+        mock_client.get_info.return_value = new_info
+        container.set_router_client(mock_client)
+
+        exporter = Exporter(container)
+        exporter._router_info = old_info
+        exporter._previous_product_id = "RT-AX88U-Main"
+        # Set initial metric values
+        exporter._up.labels(product_id="RT-AX88U-Main").set(1)
+        exporter._scrape_duration.labels(product_id="RT-AX88U-Main").set(0.5)
+
+        # Refresh should detect the switch and handle it
+        with patch("asus_router_exporter.server.exporter.SelfMetrics") as mock_metrics_cls:
+            mock_metrics = MagicMock()
+            mock_metrics_cls.get_instance.return_value = mock_metrics
+
+            exporter._refresh_router_info(mock_client)
+
+            # Verify node switch was recorded
+            mock_metrics.record_node_switch.assert_called_once_with("RT-AX88U-Main", "RT-AX86U-Repeater")
+
+        # Verify stale labels were removed
+        assert ("RT-AX88U-Main",) not in exporter._up._metrics
+        assert ("RT-AX88U-Main",) not in exporter._scrape_duration._metrics
+
+        # Verify router_info and previous_product_id were updated
+        assert exporter._router_info is new_info
+        assert exporter._previous_product_id == "RT-AX86U-Repeater"

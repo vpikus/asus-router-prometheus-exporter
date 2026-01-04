@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from prometheus_client import Gauge, start_http_server
 
 from ..core.container import Container
+from ..metrics.self_metrics import SelfMetrics
 
 if TYPE_CHECKING:
     pass
@@ -87,6 +88,7 @@ class Exporter:
         self._router_info: Any | None = None
         self._http_server: HTTPServer | None = None
         self._received_signal: int | None = None
+        self._previous_product_id: str | None = None
 
         # Scrape status metrics
         self._up = Gauge(
@@ -163,11 +165,13 @@ class Exporter:
             client = self._container.router_client
             self._router_info = client.get_info()
             product_id = getattr(self._router_info, "product_id", "unknown")
+            self._previous_product_id = product_id
             logger.info("Connected to router: %s", product_id)
         except Exception:
             logger.exception("Failed to get router info")
             # Create minimal router info for labels with safe defaults
             self._router_info = FallbackRouterInfo()
+            self._previous_product_id = "unknown"
 
     def _collect_with_error_handling(self) -> None:
         """Collect metrics with error handling and status tracking."""
@@ -222,12 +226,73 @@ class Exporter:
 
         Updates self._router_info with fresh data from the router.
         Falls back to previous router_info (or FallbackRouterInfo) on error.
+
+        Detects AiMesh node switches by comparing product_id changes. When the
+        exporter connects to a different node (e.g., during main router restart),
+        all metrics are cleared to prevent stale data from the previous node.
         """
         try:
-            self._router_info = client.get_info()
+            new_router_info = client.get_info()
+            new_product_id = getattr(new_router_info, "product_id", "unknown")
+
+            # Detect node switch (product_id change)
+            if self._previous_product_id is not None and new_product_id != self._previous_product_id:
+                self._handle_node_switch(self._previous_product_id, new_product_id)
+
+            self._router_info = new_router_info
+            self._previous_product_id = new_product_id
         except Exception:
             logger.warning("Failed to refresh router info, using previous values", exc_info=True)
             # Keep existing router_info (or FallbackRouterInfo if never succeeded)
+
+    def _handle_node_switch(self, old_product_id: str, new_product_id: str) -> None:
+        """Handle AiMesh node switch by clearing all stale metrics.
+
+        Args:
+            old_product_id: The product_id of the previous node.
+            new_product_id: The product_id of the new node.
+
+        When the exporter switches between AiMesh nodes (e.g., main router
+        restarts and exporter temporarily connects to repeater), this method:
+        1. Logs the node transition
+        2. Clears all collector metrics (prevents stale data)
+        3. Resets collector internal state (prevents incorrect calculations)
+        4. Removes stale product_id labels from exporter's own metrics
+        5. Records the node switch event for observability
+        """
+        logger.warning(
+            "AiMesh node switch detected: %s -> %s. Clearing all metrics.",
+            old_product_id,
+            new_product_id,
+        )
+
+        # Clear all collector metrics to remove stale data from old node
+        self._container.clear_all_metrics()
+
+        # Reset collector internal state (e.g., _previous_samples for delta calculations)
+        self._container.reset_all_collector_state()
+
+        # Remove stale product_id labels from exporter's own metrics
+        self._clear_stale_product_id_labels(old_product_id)
+
+        # Record the node switch event for observability
+        metrics = SelfMetrics.get_instance()
+        metrics.record_node_switch(old_product_id, new_product_id)
+
+    def _clear_stale_product_id_labels(self, old_product_id: str) -> None:
+        """Remove stale product_id labels from exporter's own metrics.
+
+        Args:
+            old_product_id: The product_id label to remove.
+        """
+        try:
+            self._up.remove(old_product_id)
+        except KeyError:
+            pass  # Label doesn't exist
+        try:
+            self._scrape_duration.remove(old_product_id)
+        except KeyError:
+            pass  # Label doesn't exist
 
     def _handle_shutdown(self, signum: int, frame: Any) -> None:
         """
